@@ -1,0 +1,17 @@
+{
+  "name": "plan mode: python is blocked (card, not an error), model recovers with read-only SQL",
+  "mode": "plan",
+  "fixtures": false,
+  "user": "算一下 1+1",
+  "model": [
+    {"tool_calls": [{"name": "python", "arguments": {"code": "print(1+1)"}}]},
+    {"tool_calls": [{"name": "sql_query", "arguments": {"sql": "SELECT 1+1 AS x"}}]},
+    {"content": "结果是 2。"}
+  ],
+  "expect": {
+    "tool_calls": [["python"], ["sql_query"], []],
+    "results": [{"tool": "python", "error": false, "blocked": true}, {"tool": "sql_query", "error": false}],
+    "reason": "done",
+    "text_contains": "2"
+  }
+}

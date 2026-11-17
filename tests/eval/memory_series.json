@@ -1,0 +1,207 @@
+{
+ "files": "项目文件夹 data/ 下有：orders.csv（订单，GBK 编码）、master.xlsx（customers / products 两个 sheet，customers 表头前有一行标题）、targets_2026.csv（2026 年各大区目标）。销售额 = 数量 × 单价。",
+ "note": "Cross-session learning (CL-Bench style): each question runs in a fresh session of the same project; after answering, the model is told the reference answer and the business rule behind it. Rules are NOT in any file, so later questions can only benefit through memory. s6 feedback announces a rule change (active threshold 20 → 25): s7/s8 test whether memory is updated instead of keeping the stale rule. seed_memories: 10 irrelevant topics + 1 stale conflicting GMV rule (75 days old) pre-loaded into .datapilot/memory/.",
+ "series": [
+  {
+   "id": "s1_gmv_region",
+   "q": "2025 年各大区的 GMV 分别是多少？哪个最高？",
+   "gold": "SELECT c.大区, round(sum(o.数量*p.单价),2) FROM orders o JOIN customers c USING(customer_id) JOIN products p USING(product_id) WHERE o.状态='paid' AND c.等级<>'C' AND year(o.下单日期)=2025 GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "num_cols": [
+     1
+    ]
+   },
+   "rule": "公司口径：GMV 只算已支付订单（状态 = 'paid'），并且不含 C 级客户（C 级是内部测试账号）。"
+  },
+  {
+   "id": "s2_gmv_category",
+   "q": "2026 年 1–8 月 GMV 最高的品类是哪个？是多少？",
+   "gold": "SELECT p.品类, round(sum(o.数量*p.单价),2) FROM orders o JOIN customers c USING(customer_id) JOIN products p USING(product_id) WHERE o.状态='paid' AND c.等级<>'C' AND year(o.下单日期)=2026 GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "num_cols": [
+     1
+    ]
+   },
+   "rule": "GMV 口径同上：已支付且不含 C 级客户。"
+  },
+  {
+   "id": "s3_active",
+   "q": "2025 年有多少活跃客户？",
+   "gold": "SELECT count(*) FROM (SELECT customer_id FROM orders WHERE 状态='paid' AND year(下单日期)=2025 GROUP BY 1 HAVING count(*)>=20)",
+   "check": {
+    "num_cols": [
+     0
+    ]
+   },
+   "rule": "公司口径：活跃客户 = 统计期内已支付订单不少于 20 笔的客户。"
+  },
+  {
+   "id": "s4_active_grade_a",
+   "q": "2025 年 A 等级客户里有多少个活跃客户？",
+   "gold": "SELECT count(*) FROM (SELECT o.customer_id FROM orders o JOIN customers c USING(customer_id) WHERE o.状态='paid' AND year(o.下单日期)=2025 AND c.等级='A' GROUP BY 1 HAVING count(*)>=20)",
+   "check": {
+    "num_cols": [
+     0
+    ]
+   },
+   "rule": "活跃客户口径同上：统计期内已支付订单不少于 20 笔。"
+  },
+  {
+   "id": "s5_target",
+   "q": "各大区 2026 年 1–8 月的 GMV 分别完成了 2026 年全年目标的百分之多少？完成率最高的是哪个大区？",
+   "gold": "SELECT c.大区, sum(o.数量*p.单价)/(max(t.\"目标(万元)\")*10000) FROM orders o JOIN customers c USING(customer_id) JOIN products p USING(product_id) JOIN targets26 t ON t.大区=c.大区 WHERE o.状态='paid' AND c.等级<>'C' AND year(o.下单日期)=2026 GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "pct_cols": [
+     1
+    ]
+   },
+   "rule": "目标表的单位是万元（要乘 10000 再比）；GMV 口径：已支付且不含 C 级客户。"
+  },
+  {
+   "id": "s6_gmv_quarter",
+   "q": "2025 年 GMV 按季度看，哪个季度最高？是多少？",
+   "gold": "SELECT 'Q' || quarter(o.下单日期), round(sum(o.数量*p.单价),2) FROM orders o JOIN customers c USING(customer_id) JOIN products p USING(product_id) WHERE o.状态='paid' AND c.等级<>'C' AND year(o.下单日期)=2025 GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "num_cols": [
+     1
+    ]
+   },
+   "rule": "GMV 口径同上。另外，财务部刚通知：自即日起活跃客户的门槛改为统计期内已支付订单不少于 25 笔（原来是 20 笔），历史数据也按新口径重算。"
+  },
+  {
+   "id": "s7_active_grade_b_new",
+   "q": "2025 年 B 等级客户里有多少个活跃客户？",
+   "gold": "SELECT count(*) FROM (SELECT o.customer_id FROM orders o JOIN customers c USING(customer_id) WHERE o.状态='paid' AND year(o.下单日期)=2025 AND c.等级='B' GROUP BY 1 HAVING count(*)>=25)",
+   "check": {
+    "num_cols": [
+     0
+    ]
+   },
+   "rule": "活跃客户口径（新）：统计期内已支付订单不少于 25 笔，所有等级都算。"
+  },
+  {
+   "id": "s8_active_new",
+   "q": "2025 年一共有多少活跃客户？",
+   "gold": "SELECT count(*) FROM (SELECT customer_id FROM orders WHERE 状态='paid' AND year(下单日期)=2025 GROUP BY 1 HAVING count(*)>=25)",
+   "check": {
+    "num_cols": [
+     0
+    ]
+   },
+   "rule": "活跃客户口径（新）：已支付订单不少于 25 笔。"
+  }
+ ],
+ "seed_memories": [
+  {
+   "file": "gmv-旧口径.md",
+   "name": "GMV 口径（旧）",
+   "description": "GMV = 全部订单金额（含退款订单），所有客户都算",
+   "type": "project",
+   "age_days": 75,
+   "body": "GMV = 全部订单的 数量 × 单价，退款订单也计入，所有客户等级都算。\n\n**Why:** 2026-08 财务周会口头约定。\n\n**How to apply:** 计算 GMV 时不过滤状态。"
+  },
+  {
+   "file": "复购率口径.md",
+   "name": "复购率口径",
+   "description": "复购率 = 统计期内下单 ≥2 次的客户 / 下单客户",
+   "type": "project",
+   "age_days": 20,
+   "body": "复购率 = 统计期内下单 ≥2 次的客户数 / 有下单的客户数。\n\n**Why:** 运营部定义。\n\n**How to apply:** 复购类问题。"
+  },
+  {
+   "file": "毛利口径.md",
+   "name": "毛利口径",
+   "description": "毛利 = 销售额 - 成本（成本在 cost.xlsx，本项目暂无）",
+   "type": "project",
+   "age_days": 30,
+   "body": "毛利 = 销售额 - 成本；成本表 cost.xlsx 尚未提供。\n\n**Why:** 财务定义。\n\n**How to apply:** 用户问毛利时先确认是否有成本表。"
+  },
+  {
+   "file": "汇报格式.md",
+   "name": "汇报格式偏好",
+   "description": "结论先行，金额用万元保留两位小数",
+   "type": "user",
+   "age_days": 10,
+   "body": "回答先给结论；金额展示时可用万元并保留两位小数，但需同时给出元为单位的精确值。\n\n**Why:** 用户偏好。\n\n**How to apply:** 所有回答。"
+  },
+  {
+   "file": "图表偏好.md",
+   "name": "图表偏好",
+   "description": "趋势用折线图，构成用柱状图，不用饼图",
+   "type": "user",
+   "age_days": 12,
+   "body": "趋势用折线，构成/对比用柱状，不用饼图。\n\n**Why:** 用户偏好。\n\n**How to apply:** 画图时。"
+  },
+  {
+   "file": "华东区负责人.md",
+   "name": "华东区负责人",
+   "description": "华东区负责人为王经理，报表抄送 wang@example.com",
+   "type": "reference",
+   "age_days": 40,
+   "body": "华东区负责人：王经理（wang@example.com）。\n\n**Why:** 报表抄送。\n\n**How to apply:** 涉及华东区报表时提醒抄送。"
+  },
+  {
+   "file": "促销期定义.md",
+   "name": "促销期定义",
+   "description": "大促期 = 每年 6-18 前后 7 天、11-11 前后 7 天",
+   "type": "project",
+   "age_days": 25,
+   "body": "大促期 = 6 月 11–25 日、11 月 4–18 日。\n\n**Why:** 市场部定义。\n\n**How to apply:** 用户问大促/促销期时。"
+  },
+  {
+   "file": "会员等级说明.md",
+   "name": "会员等级说明",
+   "description": "会员等级 V1-V5 与客户等级 A/B/C 无关",
+   "type": "project",
+   "age_days": 33,
+   "body": "会员等级 V1–V5 是 CRM 字段，和 customers.等级（A/B/C）不是一回事。\n\n**Why:** 避免混淆。\n\n**How to apply:** 用户问会员等级时。"
+  },
+  {
+   "file": "物流时效口径.md",
+   "name": "物流时效口径",
+   "description": "物流时效 = 签收时间 - 发货时间（小时）",
+   "type": "project",
+   "age_days": 18,
+   "body": "物流时效 = 签收时间 - 发货时间，单位小时；本项目暂无物流表。\n\n**Why:** 物流部定义。\n\n**How to apply:** 物流相关问题。"
+  },
+  {
+   "file": "供应商编码规则.md",
+   "name": "供应商编码规则",
+   "description": "供应商编码 S+4 位数字，与 product_id 无关",
+   "type": "project",
+   "age_days": 22,
+   "body": "供应商编码格式 S0001；与 product_id（P001）不是同一编码体系。\n\n**Why:** 主数据规范。\n\n**How to apply:** 关联供应商时。"
+  },
+  {
+   "file": "nps-口径.md",
+   "name": "NPS 口径",
+   "description": "NPS = 推荐者% - 贬损者%",
+   "type": "project",
+   "age_days": 15,
+   "body": "NPS = 9–10 分占比 - 0–6 分占比。\n\n**Why:** 客服部定义。\n\n**How to apply:** 满意度问题。"
+  }
+ ],
+ "hygiene": {
+  "topics": {
+   "GMV": "GMV",
+   "活跃客户": "活跃客户"
+  },
+  "stale": [
+   "^(?!.*(不含|剔除|排除|作废|旧口径))(?=.*含退款)",
+   "^(?!.*25)(?=.*(≥|>=|不少于|至少) ?20 ?笔)"
+  ]
+ },
+ "intro_questions": [
+  "s1_gmv_region",
+  "s3_active"
+ ]
+}

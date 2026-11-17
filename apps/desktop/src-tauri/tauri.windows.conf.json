@@ -1,0 +1,17 @@
+{
+  "bundle": {
+    "targets": ["nsis"],
+    "resources": {
+      "../../../build/vendor/python/": null,
+      "../../../build/vendor-win/python/": "python/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": false,
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
+    }
+  }
+}

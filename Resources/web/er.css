@@ -1,0 +1,41 @@
+/* ER diagram (er.js). Uses the dashboard.css tokens. */
+html,body{height:100%}
+.er-root{position:relative;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.er-toolbar{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.er-title{font-weight:600;margin-right:6px}
+.er-legend{display:flex;gap:10px;flex:1;color:var(--muted);font-size:12px}
+.er-lg:before{content:"";display:inline-block;width:18px;height:0;border-top:2px solid var(--accent);vertical-align:middle;margin-right:4px}
+.er-lg.dash:before{border-top:2px dashed var(--muted)}
+.er-lg.warn:before{border-top:2px dashed #eb6834}
+.dp-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.dp-btn.danger{color:var(--bad)}
+.er-canvas{position:relative;flex:1;min-height:0}
+.er-canvas svg{display:block;touch-action:none;user-select:none}
+.er-empty{position:absolute;inset:40% 0 auto;text-align:center;color:var(--muted)}
+.er-hint{position:absolute;left:10px;bottom:8px;font-size:11px;color:var(--muted);pointer-events:none}
+.er-panel{position:absolute;top:44px;right:0;bottom:0;width:340px;max-width:92%;background:var(--surface);border-left:1px solid var(--border);
+ box-shadow:-6px 0 24px rgba(0,0,0,.08);transform:translateX(105%);transition:transform .18s;display:flex;flex-direction:column}
+.er-panel.open{transform:none}
+.er-panel-head{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid var(--border)}
+.er-panel-title{flex:1;font-weight:600;word-break:break-all}
+.er-panel-body{padding:10px;overflow:auto;display:flex;flex-direction:column;gap:8px}
+.er-kv{display:flex;gap:8px;font-size:12px;align-items:baseline}
+.er-k{color:var(--muted);min-width:64px}
+.er-v{word-break:break-all}
+code.er-v{font:11px ui-monospace,Menlo,Consolas,monospace;background:var(--hover);padding:2px 4px;border-radius:4px}
+.er-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.er-side{border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin:0;display:flex;flex-direction:column;gap:6px}
+.er-side legend{color:var(--ink2);font-size:12px;padding:0 4px}
+.er-row{display:flex;gap:6px;align-items:center}
+.er-row select{flex:1;min-width:0;font:inherit;color:var(--ink);background:var(--page);border:1px solid var(--border);border-radius:6px;padding:3px}
+.er-sub{color:var(--muted);font-size:11px}
+.er-steps{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12px}
+.er-step{display:flex;gap:3px;align-items:center;cursor:pointer}
+.er-num{width:60px}
+.er-text,.er-num{font:inherit;color:var(--ink);background:var(--page);border:1px solid var(--border);border-radius:6px;padding:4px 6px;width:100%}
+.er-num{width:64px}
+.er-result{display:flex;flex-direction:column;gap:6px;font-size:12px}
+.er-rate{font-size:16px;font-weight:600}
+.er-rate.good{color:var(--good)} .er-rate.mid{color:#c98500} .er-rate.bad{color:var(--bad)}
+.er-warn{color:var(--bad)}
+.er-suggest{display:flex;gap:8px;align-items:center;background:var(--hover);border-radius:6px;padding:6px}

@@ -1,0 +1,54 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://datapilot.dku/protocol/tool-contract.schema.json",
+ "title": "ToolContract",
+ "description": "Declarative tool contract shared by every core (Swift today, Rust later). protocol/tools.snapshot.json is generated from the registry and checked by tests.",
+ "type": "object",
+ "properties": {
+  "name": {
+   "type": "string",
+   "pattern": "^[a-z_][a-z0-9_]*$"
+  },
+  "risk": {
+   "$ref": "#/$defs/risk"
+  },
+  "concurrency_safe": {
+   "type": "boolean"
+  },
+  "plan_mode": {
+   "type": "boolean"
+  },
+  "parameters": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "object"
+    }
+   },
+   "required": [
+    "type"
+   ]
+  },
+  "description": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "name",
+  "description",
+  "risk",
+  "concurrency_safe",
+  "plan_mode",
+  "parameters"
+ ],
+ "$defs": {
+  "risk": {
+   "enum": [
+    "readOnly",
+    "sandboxed",
+    "network",
+    "external"
+   ]
+  }
+ }
+}

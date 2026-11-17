@@ -1,0 +1,18 @@
+{
+  "name": "import → schema + sql in parallel → answer",
+  "mode": "ask",
+  "fixtures": true,
+  "user": "各大区订单数是多少？",
+  "model": [
+    {"tool_calls": [{"name": "data_import", "arguments": {"path": "uploads/master.xlsx"}}]},
+    {"tool_calls": [{"name": "data_schema", "arguments": {}},
+                    {"name": "sql_query", "arguments": {"sql": "SELECT \"大区\", count(*) AS n FROM master_customers GROUP BY 1 ORDER BY 1", "question": "各大区客户数"}}]},
+    {"content": "华东区客户最多。"}
+  ],
+  "expect": {
+    "tool_calls": [["data_import"], ["data_schema", "sql_query"], []],
+    "results": [{"tool": "data_import", "error": false}, {"tool": "data_schema", "error": false}, {"tool": "sql_query", "error": false}],
+    "reason": "done",
+    "text_contains": "华东区"
+  }
+}

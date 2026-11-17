@@ -1,0 +1,40 @@
+{
+  "name": "network tool with the network switch off → network card → user declines → error result, model explains",
+  "mode": "auto",
+  "fixtures": false,
+  "interact": {
+    "approval": "deny"
+  },
+  "user": "帮我看看 https://example.com 上写了什么",
+  "model": [
+    {
+      "tool_calls": [
+        {
+          "name": "web_fetch",
+          "arguments": {
+            "url": "https://example.com"
+          }
+        }
+      ]
+    },
+    {
+      "content": "联网开关是关闭的，需要你打开「联网」后我才能访问。"
+    }
+  ],
+  "expect": {
+    "tool_calls": [
+      [
+        "web_fetch"
+      ],
+      []
+    ],
+    "results": [
+      {
+        "tool": "web_fetch",
+        "error": true
+      }
+    ],
+    "reason": "done",
+    "text_contains": "联网"
+  }
+}

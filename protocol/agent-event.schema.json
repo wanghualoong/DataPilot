@@ -1,0 +1,594 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://datapilot.dku/protocol/agent-event.schema.json",
+ "title": "AgentEvent",
+ "description": "Core → UI event stream (JSON-RPC notification `agent/event` params). Discriminated by `type`. Adding optional fields is compatible; renaming/removing is a breaking change (bump protocol version).",
+ "oneOf": [
+  {
+   "title": "turn_started",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "turn_started"
+    },
+    "turn_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "turn_id"
+   ]
+  },
+  {
+   "title": "assistant_delta",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "assistant_delta"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "text"
+   ]
+  },
+  {
+   "title": "reasoning_delta",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "reasoning_delta"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "text"
+   ]
+  },
+  {
+   "title": "tool_call_streaming",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "tool_call_streaming"
+    },
+    "index": {
+     "type": "integer"
+    },
+    "name": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "index",
+    "name"
+   ]
+  },
+  {
+   "title": "assistant_message",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "assistant_message"
+    },
+    "message": {
+     "$ref": "#/$defs/message"
+    }
+   },
+   "required": [
+    "type",
+    "message"
+   ]
+  },
+  {
+   "title": "tool_started",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "tool_started"
+    },
+    "call_id": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "summary": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "call_id",
+    "name",
+    "summary"
+   ]
+  },
+  {
+   "title": "tool_progress",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "tool_progress"
+    },
+    "call_id": {
+     "type": "string"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "call_id",
+    "text"
+   ]
+  },
+  {
+   "title": "tool_finished",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "tool_finished"
+    },
+    "call_id": {
+     "type": "string"
+    },
+    "message": {
+     "$ref": "#/$defs/message"
+    },
+    "display": {
+     "$ref": "#/$defs/display"
+    },
+    "is_error": {
+     "type": "boolean"
+    },
+    "ms": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "type",
+    "call_id",
+    "message",
+    "is_error",
+    "ms"
+   ]
+  },
+  {
+   "title": "approval_required",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "approval_required"
+    },
+    "request": {
+     "$ref": "#/$defs/approval"
+    }
+   },
+   "required": [
+    "type",
+    "request"
+   ]
+  },
+  {
+   "title": "plan_proposed",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "plan_proposed"
+    },
+    "call_id": {
+     "type": "string"
+    },
+    "plan": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "call_id",
+    "plan"
+   ]
+  },
+  {
+   "title": "todos_updated",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "todos_updated"
+    },
+    "todos": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/todo"
+     }
+    }
+   },
+   "required": [
+    "type",
+    "todos"
+   ]
+  },
+  {
+   "title": "question",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "question"
+    },
+    "call_id": {
+     "type": "string"
+    },
+    "question": {
+     "type": "string"
+    },
+    "options": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "required": [
+    "type",
+    "call_id",
+    "question",
+    "options"
+   ]
+  },
+  {
+   "title": "context_injected",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "context_injected"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "text"
+   ]
+  },
+  {
+   "title": "compacted",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "compacted"
+    },
+    "summary": {
+     "type": "string"
+    },
+    "before_tokens": {
+     "type": "integer"
+    },
+    "after_tokens": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "type",
+    "summary",
+    "before_tokens",
+    "after_tokens"
+   ]
+  },
+  {
+   "title": "usage",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "usage"
+    },
+    "usage": {
+     "type": "object",
+     "properties": {
+      "prompt_tokens": {
+       "type": "integer"
+      },
+      "completion_tokens": {
+       "type": "integer"
+      }
+     },
+     "required": [
+      "prompt_tokens",
+      "completion_tokens"
+     ]
+    },
+    "context_tokens": {
+     "type": "integer"
+    },
+    "context_window": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "type",
+    "usage",
+    "context_tokens",
+    "context_window"
+   ]
+  },
+  {
+   "title": "memory_saved",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "memory_saved"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "text"
+   ]
+  },
+  {
+   "title": "notice",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "notice"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "text"
+   ]
+  },
+  {
+   "title": "error",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "error"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "text"
+   ]
+  },
+  {
+   "title": "turn_finished",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "turn_finished"
+    },
+    "turn_id": {
+     "type": "string"
+    },
+    "reason": {
+     "enum": [
+      "done",
+      "cancelled",
+      "error",
+      "max_turns",
+      "no_model"
+     ]
+    }
+   },
+   "required": [
+    "type",
+    "turn_id",
+    "reason"
+   ]
+  },
+  {
+   "title": "network_changed",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "network_changed"
+    },
+    "enabled": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "type",
+    "enabled"
+   ]
+  },
+  {
+   "title": "interjection_delivered",
+   "type": "object",
+   "properties": {
+    "type": {
+     "const": "interjection_delivered"
+    },
+    "id": {
+     "type": "string"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "id",
+    "text"
+   ]
+  },
+  {
+   "title": "title_changed",
+   "type": "object",
+   "description": "The session title was set (first message) or improved by the fast model.",
+   "properties": {
+    "type": {
+     "const": "title_changed"
+    },
+    "title": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "title"
+   ]
+  }
+ ],
+ "$defs": {
+  "message": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "role": {
+     "enum": [
+      "system",
+      "user",
+      "assistant",
+      "tool"
+     ]
+    },
+    "content": {
+     "type": "string"
+    },
+    "reasoning": {
+     "type": "string"
+    },
+    "tool_calls": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/tool_call"
+     }
+    },
+    "tool_call_id": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "turn_id": {
+     "type": "string"
+    },
+    "is_meta": {
+     "type": "boolean"
+    },
+    "image_count": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "id",
+    "role",
+    "content",
+    "is_meta"
+   ]
+  },
+  "tool_call": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "arguments": {
+     "type": "string",
+     "description": "raw JSON text produced by the model"
+    }
+   },
+   "required": [
+    "id",
+    "name",
+    "arguments"
+   ]
+  },
+  "approval": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "tool": {
+     "type": "string"
+    },
+    "summary": {
+     "type": "string"
+    },
+    "risk": {
+     "$ref": "tool-contract.schema.json#/$defs/risk"
+    },
+    "args": {},
+    "kind": {
+     "enum": [
+      "tool",
+      "network"
+     ]
+    },
+    "host": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "id",
+    "tool",
+    "summary",
+    "risk",
+    "args",
+    "kind",
+    "host"
+   ]
+  },
+  "todo": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "content": {
+     "type": "string"
+    },
+    "status": {
+     "enum": [
+      "pending",
+      "in_progress",
+      "completed"
+     ]
+    }
+   },
+   "required": [
+    "id",
+    "content",
+    "status"
+   ]
+  },
+  "display": {
+   "type": "object",
+   "description": "UI card payload; `kind` selects the renderer (sql, chart, dashboard, file, transform, relation, schema, python, search, subagent, …)",
+   "properties": {
+    "kind": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "kind"
+   ]
+  }
+ }
+}

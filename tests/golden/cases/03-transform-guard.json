@@ -1,0 +1,20 @@
+{
+  "name": "data_transform: derived table allowed, dropping an imported table refused",
+  "mode": "full",
+  "fixtures": true,
+  "user": "按大区建一张客户数派生表，然后删掉原表",
+  "model": [
+    {"tool_calls": [{"name": "data_import", "arguments": {"path": "uploads/master.xlsx"}}]},
+    {"tool_calls": [{"name": "data_transform", "arguments": {"sql": "CREATE TABLE region_n AS SELECT \"大区\", count(*) AS n FROM master_customers GROUP BY 1"}}]},
+    {"tool_calls": [{"name": "data_transform", "arguments": {"sql": "DROP TABLE master_customers"}}]},
+    {"tool_calls": [{"name": "unknown_tool_xyz", "arguments": {}}]},
+    {"content": "已生成 region_n；原始导入表是只读的，不能删除。"}
+  ],
+  "expect": {
+    "tool_calls": [["data_import"], ["data_transform"], ["data_transform"], ["unknown_tool_xyz"], []],
+    "results": [{"tool": "data_import", "error": false}, {"tool": "data_transform", "error": false},
+                {"tool": "data_transform", "error": true}, {"tool": "unknown_tool_xyz", "error": true}],
+    "reason": "done",
+    "text_contains": "只读"
+  }
+}

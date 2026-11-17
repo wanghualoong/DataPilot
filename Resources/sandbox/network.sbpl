@@ -1,0 +1,9 @@
+; Network allowance (appended only when the session enables network).
+(allow network-outbound)
+(allow network-inbound (local ip "localhost:*"))
+(allow system-socket)
+(allow mach-lookup
+  (global-name "com.apple.SecurityServer") (global-name "com.apple.trustd.agent")
+  (global-name "com.apple.networkd") (global-name "com.apple.SystemConfiguration.configd")
+  (global-name "com.apple.dnssd.service") (global-name "com.apple.mDNSResponder"))
+(allow file-read* (subpath "/private/var/run") (literal "/private/var/run/resolv.conf"))

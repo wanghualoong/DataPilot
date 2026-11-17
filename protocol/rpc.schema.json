@@ -1,0 +1,487 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://datapilot.dku/protocol/rpc.schema.json",
+ "title": "Rpc",
+ "description": "datapilot-core stdio JSON-RPC: method names and the shared payload types UIs use. `datapilot-core` tests check that `method` matches the server's dispatch table.",
+ "type": "object",
+ "properties": {
+  "method": {
+   "$ref": "#/$defs/Method"
+  },
+  "sessionInfo": {
+   "$ref": "#/$defs/SessionInfo"
+  },
+  "projectInfo": {
+   "$ref": "#/$defs/ProjectInfo"
+  },
+  "historyItem": {
+   "$ref": "#/$defs/HistoryItem"
+  },
+  "history": {
+   "$ref": "#/$defs/History"
+  },
+  "searchHit": {
+   "$ref": "#/$defs/SearchHit"
+  },
+  "openResult": {
+   "$ref": "#/$defs/OpenResult"
+  },
+  "mode": {
+   "$ref": "#/$defs/Mode"
+  },
+  "approvalChoice": {
+   "$ref": "#/$defs/ApprovalChoice"
+  },
+  "secretKind": {
+   "$ref": "#/$defs/SecretKind"
+  },
+  "skill": {
+   "$ref": "#/$defs/Skill"
+  },
+  "topic": {
+   "$ref": "#/$defs/Topic"
+  },
+  "dashboardEntry": {
+   "$ref": "#/$defs/DashboardEntry"
+  },
+  "coreNotice": {
+   "$ref": "#/$defs/CoreNotice"
+  },
+  "agentEventNotification": {
+   "$ref": "#/$defs/AgentEventNotification"
+  }
+ },
+ "$defs": {
+  "Method": {
+   "enum": [
+    "app/about",
+    "app/doctor",
+    "approval/respond",
+    "chrome/install",
+    "chrome/status",
+    "compact",
+    "computer/permissions",
+    "computer/request",
+    "config/get",
+    "config/reload",
+    "config/set",
+    "dashboard/delete",
+    "dashboard/get",
+    "dashboard/list",
+    "dashboard/patch",
+    "dashboard/pin",
+    "dashboard/query",
+    "dashboard/save",
+    "files/image",
+    "files/import",
+    "files/list",
+    "files/save",
+    "initialize",
+    "kernel/call",
+    "kernel/cancel_task",
+    "kernel/restart",
+    "kernel/status",
+    "kernel/tasks",
+    "llm/fast",
+    "mcp/status",
+    "mcp/sync",
+    "memory/datasets",
+    "memory/dream",
+    "memory/qsql",
+    "memory/topics",
+    "mode/set",
+    "model/set",
+    "net/test",
+    "network/set",
+    "newapi/create",
+    "newapi/login",
+    "newapi/logout",
+    "newapi/status",
+    "newapi/tokens",
+    "newapi/use",
+    "project/close",
+    "project/delete_data",
+    "project/list",
+    "project/open",
+    "project/relink",
+    "project/remove",
+    "provider/models",
+    "provider/probe",
+    "qsql/feedback",
+    "question/answer",
+    "secret/has",
+    "secret/set",
+    "session/archive",
+    "session/btw",
+    "session/close",
+    "session/context",
+    "session/create",
+    "session/delete",
+    "session/export",
+    "session/flush",
+    "session/fork",
+    "session/history",
+    "session/list",
+    "session/open",
+    "session/pin",
+    "session/rename",
+    "session/rewind",
+    "session/search",
+    "session/touch",
+    "shutdown",
+    "skill/delete",
+    "skill/get",
+    "skill/list",
+    "skill/save",
+    "turn/cancel",
+    "turn/interject",
+    "turn/start",
+    "turn/take_pending",
+    "turn/withdraw"
+   ],
+   "title": "Method"
+  },
+  "SessionInfo": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "title": {
+     "type": "string"
+    },
+    "created": {
+     "type": "number"
+    },
+    "updated": {
+     "type": "number"
+    },
+    "pinned": {
+     "type": "boolean"
+    },
+    "archived": {
+     "type": "boolean"
+    },
+    "project_id": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "project_root": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "id",
+    "title",
+    "created",
+    "updated",
+    "pinned",
+    "archived"
+   ],
+   "title": "SessionInfo"
+  },
+  "ProjectInfo": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "path": {
+     "type": "string"
+    },
+    "exists": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "id",
+    "name",
+    "path",
+    "exists"
+   ],
+   "title": "ProjectInfo"
+  },
+  "HistoryItem": {
+   "type": "object",
+   "description": "Transcript → display item (ui.rs history)",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "kind": {
+     "enum": [
+      "user",
+      "assistant",
+      "tool",
+      "compacted",
+      "context",
+      "notice",
+      "error"
+     ]
+    },
+    "text": {
+     "type": "string"
+    },
+    "reasoning": {
+     "type": "string"
+    },
+    "turn_id": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "tool_name": {
+     "type": "string"
+    },
+    "summary": {
+     "type": "string"
+    },
+    "arguments": {
+     "type": "string"
+    },
+    "output": {
+     "type": "string"
+    },
+    "is_error": {
+     "type": "boolean"
+    },
+    "display": {
+     "$ref": "agent-event.schema.json#/$defs/display"
+    }
+   },
+   "required": [
+    "id",
+    "kind"
+   ],
+   "title": "HistoryItem"
+  },
+  "History": {
+   "type": "object",
+   "properties": {
+    "items": {
+     "type": "array",
+     "items": {
+      "$ref": "#/$defs/HistoryItem"
+     }
+    },
+    "todos": {
+     "type": "array"
+    },
+    "compactions": {
+     "type": "integer"
+    },
+    "title": {
+     "type": "string"
+    },
+    "workspace": {
+     "type": "string"
+    },
+    "project_root": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "items",
+    "todos",
+    "compactions"
+   ],
+   "title": "History"
+  },
+  "SearchHit": {
+   "type": "object",
+   "properties": {
+    "session_id": {
+     "type": "string"
+    },
+    "snippet": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "session_id",
+    "snippet"
+   ],
+   "title": "SearchHit"
+  },
+  "OpenResult": {
+   "type": "object",
+   "properties": {
+    "session": {
+     "type": "string"
+    },
+    "workspace": {
+     "type": "string"
+    },
+    "messages": {
+     "type": "integer"
+    },
+    "mode": {
+     "$ref": "#/$defs/Mode"
+    },
+    "dir": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "context_tokens": {
+     "type": "integer"
+    },
+    "context_window": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "session",
+    "workspace",
+    "messages",
+    "mode"
+   ],
+   "title": "OpenResult"
+  },
+  "Mode": {
+   "enum": [
+    "plan",
+    "ask",
+    "auto",
+    "full"
+   ],
+   "title": "Mode"
+  },
+  "ApprovalChoice": {
+   "enum": [
+    "allowOnce",
+    "allowSession",
+    "allowAlways",
+    "deny"
+   ],
+   "title": "ApprovalChoice"
+  },
+  "SecretKind": {
+   "enum": [
+    "api_key",
+    "db_password",
+    "ssh_secret"
+   ],
+   "title": "SecretKind"
+  },
+  "Skill": {
+   "type": "object",
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "description": {
+     "type": "string"
+    },
+    "source": {
+     "type": "string"
+    },
+    "dir": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "name",
+    "description",
+    "source",
+    "dir"
+   ],
+   "title": "Skill"
+  },
+  "Topic": {
+   "type": "object",
+   "properties": {
+    "file": {
+     "type": "string"
+    },
+    "name": {
+     "type": "string"
+    },
+    "description": {
+     "type": "string"
+    },
+    "type": {
+     "type": "string"
+    },
+    "body": {
+     "type": "string"
+    },
+    "modified": {
+     "type": "number"
+    }
+   },
+   "required": [
+    "file",
+    "name",
+    "description",
+    "type",
+    "body"
+   ],
+   "title": "Topic"
+  },
+  "DashboardEntry": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "title": {
+     "type": "string"
+    },
+    "owner": {}
+   },
+   "required": [
+    "id",
+    "title"
+   ],
+   "title": "DashboardEntry"
+  },
+  "CoreNotice": {
+   "type": "object",
+   "description": "`core/notice` notification params",
+   "properties": {
+    "topic": {
+     "type": "string"
+    },
+    "text": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "topic",
+    "text"
+   ],
+   "title": "CoreNotice"
+  },
+  "AgentEventNotification": {
+   "type": "object",
+   "description": "`agent/event` notification params",
+   "properties": {
+    "session": {
+     "type": "string"
+    },
+    "event": {
+     "$ref": "agent-event.schema.json"
+    }
+   },
+   "required": [
+    "session",
+    "event"
+   ],
+   "title": "AgentEventNotification"
+  }
+ }
+}

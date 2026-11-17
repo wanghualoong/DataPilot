@@ -1,0 +1,37 @@
+; DataPilot sandbox policy — adapted from openai/codex seatbelt_base_policy.sbpl (Apache-2.0).
+; Deny by default; allow reads of system + bundled python; writes only to WORKSPACE and TMP.
+(version 1)
+(deny default)
+(allow process-exec)
+(allow process-fork)
+(allow signal (target same-sandbox))
+(allow process-info* (target same-sandbox))
+(allow file-write-data (require-all (path "/dev/null") (vnode-type CHARACTER-DEVICE)))
+(allow sysctl-read)
+(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))
+(allow mach-lookup (global-name "com.apple.system.logger"))
+(allow ipc-posix-sem)
+(allow ipc-posix-shm)
+(allow pseudo-tty)
+(allow file-read* file-write* file-ioctl (literal "/dev/ptmx"))
+(allow file-ioctl (regex #"^/dev/ttys[0-9]+"))
+(allow file-read* file-write-data (literal "/dev/null") (literal "/dev/zero") (literal "/dev/random") (literal "/dev/urandom") (literal "/dev/tty"))
+
+; read-only system locations
+(allow file-read-metadata)
+(allow file-read*
+  (subpath "/usr") (subpath "/bin") (subpath "/sbin") (subpath "/System") (subpath "/Library/Frameworks")
+  (subpath "/private/etc") (subpath "/etc") (subpath "/opt/homebrew") (subpath "/private/var/db/timezone")
+  (subpath "/usr/share") (subpath "/Library/Preferences") (subpath "/private/var/select")
+  (literal "/") (literal "/private") (literal "/var") (literal "/tmp")
+  (subpath (param "PYROOT"))
+  (subpath (param "RESROOT")))
+
+; workspace + tmp read/write
+(allow file-read* file-write* (subpath (param "WORKSPACE")))
+(allow file-read* file-write* (subpath (param "TMPDIR")))
+; extra user-granted read-only roots are appended at runtime
+; prevent replacing the workspace root itself
+(deny file-write-unlink (require-all (literal (param "WORKSPACE")) (vnode-type DIRECTORY)))
+(deny mach-lookup (xpc-service-name-prefix ""))
+(deny system-fcntl (fcntl-command 80 110))

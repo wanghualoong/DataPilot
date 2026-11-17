@@ -1,0 +1,20 @@
+{
+  "name": "sub-agent (explore) runs its own tool loop and returns a conclusion",
+  "mode": "ask",
+  "fixtures": false,
+  "user": "派一个子 Agent 算一下 1+1",
+  "model": [
+    {"tool_calls": [{"name": "agent", "arguments": {"description": "算 1+1", "prompt": "用 sql_query 计算 1+1 并返回结果", "subagent_type": "explore"}}]},
+    {"content": "子 Agent 算出结果是 2。"}
+  ],
+  "subagent_model": [
+    {"tool_calls": [{"name": "sql_query", "arguments": {"sql": "SELECT 1+1 AS x"}}]},
+    {"content": "结果 x = 2"}
+  ],
+  "expect": {
+    "tool_calls": [["agent"], []],
+    "results": [{"tool": "agent", "error": false}],
+    "reason": "done",
+    "text_contains": "2"
+  }
+}

@@ -1,0 +1,14 @@
+[
+ {"q": "各大区的已支付订单销售额（数量×单价）是多少？按销售额降序", "sql": "SELECT c.\"大区\", sum(o.\"数量\"*p.\"单价\") AS v FROM orders o JOIN master_customers c USING(customer_id) JOIN master_products p USING(product_id) WHERE o.\"状态\"='paid' GROUP BY 1 ORDER BY 2 DESC"},
+ {"q": "退款订单一共有多少笔？", "sql": "SELECT count(*) FROM orders WHERE \"状态\"='refund'"},
+ {"q": "哪个品类的已支付销售额最高？", "sql": "SELECT p.\"品类\" FROM orders o JOIN master_products p USING(product_id) WHERE o.\"状态\"='paid' GROUP BY 1 ORDER BY sum(o.\"数量\"*p.\"单价\") DESC LIMIT 1"},
+ {"q": "A 等级客户有多少个？", "sql": "SELECT count(*) FROM master_customers WHERE \"等级\"='A'"},
+ {"q": "2025 年每个月的订单数是多少？", "sql": "SELECT date_trunc('month', \"下单日期\") AS m, count(*) FROM orders WHERE year(\"下单日期\")=2025 GROUP BY 1 ORDER BY 1"},
+ {"q": "华东区客户的平均订单数量（每单数量的平均值）", "sql": "SELECT avg(o.\"数量\") FROM orders o JOIN master_customers c USING(customer_id) WHERE c.\"大区\"='华东区'"},
+ {"q": "下单次数最多的前 5 个客户名称", "sql": "SELECT c.\"客户名称\" FROM orders o JOIN master_customers c USING(customer_id) GROUP BY 1 ORDER BY count(*) DESC, 1 LIMIT 5"},
+ {"q": "每个品类有多少个产品？", "sql": "SELECT \"品类\", count(*) FROM master_products GROUP BY 1 ORDER BY 1"},
+ {"q": "各大区的退款率（退款订单数/总订单数）", "sql": "SELECT c.\"大区\", avg(CASE WHEN o.\"状态\"='refund' THEN 1.0 ELSE 0 END) FROM orders o JOIN master_customers c USING(customer_id) GROUP BY 1 ORDER BY 1"},
+ {"q": "单价最高的产品编号", "sql": "SELECT product_id FROM master_products ORDER BY \"单价\" DESC LIMIT 1"},
+ {"q": "有多少客户从未下过单？", "sql": "SELECT count(*) FROM master_customers c WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id=c.customer_id)"},
+ {"q": "2025 年与 2026 年已支付销售额分别是多少？", "sql": "SELECT year(o.\"下单日期\") y, sum(o.\"数量\"*p.\"单价\") FROM orders o JOIN master_products p USING(product_id) WHERE o.\"状态\"='paid' GROUP BY 1 ORDER BY 1"}
+]

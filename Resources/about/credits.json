@@ -1,0 +1,123 @@
+{
+  "license": "Apache-2.0",
+  "usage_zh": "DataPilot 以 Apache License 2.0 开发并发布，仅供内部学习和研究使用，不可作为商用。其中改编自 Chat2DB v5.3.8 的部分受 Chat2DB License 约束：不得以安装包形式分发给外部第三方或作为对外服务提供。",
+  "usage_en": "Developed and released under the Apache License 2.0, for internal learning and research only; commercial use is not permitted. Parts adapted from Chat2DB v5.3.8 are subject to the Chat2DB License: no binary distribution to external parties and no external service.",
+  "contact": "wanghualoong@126.com",
+  "copyright": "© 2026 DataPilot",
+  "code": [
+    {
+      "name": "openai/codex",
+      "url": "https://github.com/openai/codex",
+      "license": "Apache-2.0",
+      "use_zh": "Seatbelt 沙箱策略（改编）；审批模式、压缩、记忆与 Windows 沙箱设计",
+      "use_en": "Seatbelt policy (adapted); approval, compaction, memory and Windows-sandbox design"
+    },
+    {
+      "name": "OtterMind/Chat2DB Community v5.3.8",
+      "url": "https://github.com/OtterMind/Chat2DB",
+      "license": "LicenseRef-Chat2DB",
+      "use_zh": "看板图表显示选项、导出单元格处理链、ER 图布局与虚拟外键（部分代码改编）；数据库连接字段、元数据读取与只读执行策略（改编）",
+      "use_en": "Chart display options, export cell-processor chain, ER layout & virtual FKs (partly adapted code); DB connection fields, metadata reading and read-only execution policy (adapted)"
+    },
+    {
+      "name": "Apache ECharts",
+      "url": "https://echarts.apache.org",
+      "license": "Apache-2.0",
+      "use_zh": "图表与看板渲染",
+      "use_en": "Chart and dashboard rendering"
+    },
+    {
+      "name": "anthropics/skills (docx / xlsx / pptx / pdf)",
+      "url": "https://github.com/anthropics/skills",
+      "license": "Apache-2.0",
+      "use_zh": "Office 文档技能",
+      "use_en": "Office document skills"
+    },
+    {
+      "name": "python-build-standalone (CPython)",
+      "url": "https://github.com/astral-sh/python-build-standalone",
+      "license": "PSF-2.0",
+      "use_zh": "内置 Python 运行时",
+      "use_en": "Bundled Python runtime"
+    },
+    {
+      "name": "DuckDB",
+      "url": "https://duckdb.org",
+      "license": "MIT",
+      "use_zh": "分析数据库引擎",
+      "use_en": "Analytical database engine"
+    },
+    {
+      "name": "pandas / numpy / pyarrow",
+      "url": "https://pandas.pydata.org",
+      "license": "BSD-3 / Apache-2.0",
+      "use_zh": "数据处理",
+      "use_en": "Data processing"
+    },
+    {
+      "name": "sqlglot",
+      "url": "https://github.com/tobymao/sqlglot",
+      "license": "MIT",
+      "use_zh": "SQL 解析与安全校验",
+      "use_en": "SQL parsing and guard"
+    },
+    {
+      "name": "openpyxl / XlsxWriter / python-calamine / xlrd",
+      "url": "https://openpyxl.readthedocs.io",
+      "license": "MIT / BSD",
+      "use_zh": "Excel 读写",
+      "use_en": "Excel I/O"
+    },
+    {
+      "name": "python-docx / python-pptx / pypdf / pdfplumber / reportlab",
+      "url": "https://github.com/python-openxml/python-docx",
+      "license": "MIT / BSD",
+      "use_zh": "Word / PPT / PDF 处理",
+      "use_en": "Word / PPT / PDF processing"
+    },
+    {
+      "name": "pg8000 / PyMySQL / pymssql / python-oracledb / clickhouse-connect",
+      "url": "https://github.com/tlocke/pg8000",
+      "license": "BSD-3 / MIT / LGPL-2.1 / Apache-2.0 or UPL-1.0 / Apache-2.0",
+      "use_zh": "数据库直连驱动（只读分析）",
+      "use_en": "Database drivers for read-only direct connections"
+    }
+  ],
+  "concepts": [
+    {
+      "name": "Claude Code（公开文档）",
+      "url": "https://docs.anthropic.com/claude-code",
+      "license": "—",
+      "use_zh": "指令文件分层、记忆索引、权限规则、子 agent",
+      "use_en": "Layered instructions, memory index, permission rules, sub-agents"
+    },
+    {
+      "name": "claude-code-architecture-guide / cablate/claude-code-research",
+      "url": "https://github.com/cablate/claude-code-research",
+      "license": "—",
+      "use_zh": "记忆与上下文机制分析（设计结论）",
+      "use_en": "Memory and context mechanism analyses (design conclusions)"
+    },
+    {
+      "name": "vanna / SQLBot / WrenAI / DB-GPT",
+      "url": "https://github.com/vanna-ai/vanna",
+      "license": "MIT / Apache-2.0",
+      "use_zh": "Text-to-SQL、语义层设计",
+      "use_en": "Text-to-SQL and semantic-layer design"
+    },
+    {
+      "name": "microsoft/playwright-mcp",
+      "url": "https://github.com/microsoft/playwright-mcp",
+      "license": "Apache-2.0",
+      "use_zh": "浏览器快照交互方式",
+      "use_en": "Browser snapshot interaction"
+    },
+    {
+      "name": "QwenLM/Qwen3-VL cookbook",
+      "url": "https://github.com/QwenLM/Qwen3-VL",
+      "license": "Apache-2.0",
+      "use_zh": "Computer Use 动作定义",
+      "use_en": "Computer-use action schema"
+    }
+  ]
+}

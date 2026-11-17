@@ -1,0 +1,240 @@
+{
+ "files": "数据文件在 uploads/ 目录：orders.csv（订单，GBK 编码）、master.xlsx（customers / products 两个 sheet，customers 表头前有一行标题）、crm_contacts.csv（CRM 客户行业）、targets_2025.csv（各大区 2025 年销售目标）。销售额 = 数量 × 单价；“已支付”指 状态 = 'paid'。 另有：口径说明.md（公司业务口径）、targets_2026.csv（2026 年各大区目标）、returns_log.csv（退货登记）。",
+ "tasks": [
+  {
+   "id": "region_sales",
+   "q": "各大区已支付订单的销售额是多少？按销售额从高到低列出。",
+   "gold": "SELECT c.大区, round(sum(o.数量*p.单价),2) v FROM orders o JOIN customers c USING(customer_id) JOIN products p USING(product_id) WHERE o.状态='paid' GROUP BY 1 ORDER BY 2 DESC",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "num_cols": [
+     1
+    ],
+    "rows": 5,
+    "ordered": true
+   }
+  },
+  {
+   "id": "refund_count",
+   "q": "退款订单一共有多少笔？",
+   "gold": "SELECT count(*) FROM orders WHERE 状态='refund'",
+   "check": {
+    "num_cols": [
+     0
+    ]
+   }
+  },
+  {
+   "id": "top_category",
+   "q": "哪个品类的已支付销售额最高？销售额是多少？",
+   "gold": "SELECT p.品类, round(sum(o.数量*p.单价),2) FROM orders o JOIN products p USING(product_id) WHERE o.状态='paid' GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "num_cols": [
+     1
+    ]
+   }
+  },
+  {
+   "id": "peak_month",
+   "q": "2025 年哪个月的订单数最多？有多少单？",
+   "gold": "SELECT strftime(下单日期,'%-m') || '月', count(*) FROM orders WHERE year(下单日期)=2025 GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "num_cols": [
+     1
+    ]
+   }
+  },
+  {
+   "id": "east_avg_qty",
+   "q": "华东区客户平均每笔订单买几件（订单数量的平均值，保留两位小数）？",
+   "gold": "SELECT round(avg(o.数量),2) FROM orders o JOIN customers c USING(customer_id) WHERE c.大区='华东区'",
+   "check": {
+    "num_cols": [
+     0
+    ],
+    "tol": 0.006
+   }
+  },
+  {
+   "id": "top3_customers",
+   "q": "下单次数最多的前 3 个客户是谁？各下了多少单？",
+   "gold": "SELECT c.客户名称, count(*) n FROM orders o JOIN customers c USING(customer_id) GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 3",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "num_cols": [
+     1
+    ],
+    "rows": 3
+   }
+  },
+  {
+   "id": "refund_rate",
+   "q": "各大区的退款率（退款订单数 / 总订单数）分别是多少？哪个最高？",
+   "gold": "SELECT c.大区, avg(CASE WHEN o.状态='refund' THEN 1.0 ELSE 0 END) FROM orders o JOIN customers c USING(customer_id) GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "pct_cols": [
+     1
+    ]
+   }
+  },
+  {
+   "id": "no_order_customers",
+   "q": "有多少客户从来没有下过单？",
+   "gold": "SELECT count(*) FROM customers c WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE o.customer_id=c.customer_id)",
+   "check": {
+    "num_cols": [
+     0
+    ]
+   }
+  },
+  {
+   "id": "yoy_jan_aug",
+   "q": "2026 年 1–8 月的已支付销售额，比 2025 年 1–8 月增长了百分之多少？",
+   "gold": "WITH s AS (SELECT year(o.下单日期) y, sum(o.数量*p.单价) v FROM orders o JOIN products p USING(product_id) WHERE o.状态='paid' AND month(o.下单日期)<=8 GROUP BY 1) SELECT (SELECT v FROM s WHERE y=2026)/(SELECT v FROM s WHERE y=2025)-1",
+   "check": {
+    "pct_cols": [
+     0
+    ]
+   }
+  },
+  {
+   "id": "grade_a_share",
+   "q": "A 等级客户贡献的已支付销售额占全部已支付销售额的比例是多少？",
+   "gold": "SELECT sum(CASE WHEN c.等级='A' THEN o.数量*p.单价 END)/sum(o.数量*p.单价) FROM orders o JOIN customers c USING(customer_id) JOIN products p USING(product_id) WHERE o.状态='paid'",
+   "check": {
+    "pct_cols": [
+     0
+    ]
+   }
+  },
+  {
+   "id": "industry_sales",
+   "q": "结合 CRM 表里的行业，哪个行业的已支付销售额最高？是多少？",
+   "gold": "SELECT r.行业, round(sum(o.数量*p.单价),2) FROM orders o JOIN crm r ON CAST(substr(r.客户编码,3) AS INT)=o.customer_id JOIN products p USING(product_id) WHERE o.状态='paid' GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "num_cols": [
+     1
+    ]
+   }
+  },
+  {
+   "id": "target_completion",
+   "q": "各大区 2025 年已支付销售额完成了目标的百分之多少？哪个大区完成率最高？",
+   "gold": "SELECT c.大区, sum(o.数量*p.单价)/max(t.\"2025年目标\") r FROM orders o JOIN customers c USING(customer_id) JOIN products p USING(product_id) JOIN targets t ON t.大区=c.大区 WHERE o.状态='paid' AND year(o.下单日期)=2025 GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "pct_cols": [
+     1
+    ]
+   }
+  },
+  {
+   "id": "avg_order_value",
+   "q": "已支付订单的平均订单金额（客单价）是多少？",
+   "gold": "SELECT round(avg(o.数量*p.单价),2) FROM orders o JOIN products p USING(product_id) WHERE o.状态='paid'",
+   "check": {
+    "num_cols": [
+     0
+    ]
+   }
+  },
+  {
+   "id": "derived_table",
+   "q": "建一张派生表 paid_orders，只保留已支付订单，并加一列 金额（数量×单价）。告诉我这张表有多少行、金额合计多少。",
+   "gold": "SELECT count(*), round(sum(o.数量*p.单价),2) FROM orders o JOIN products p USING(product_id) WHERE o.状态='paid'",
+   "check": {
+    "num_cols": [
+     0,
+     1
+    ],
+    "table": "paid_orders"
+   }
+  },
+  {
+   "id": "export_csv",
+   "q": "把各大区的已支付销售额汇总导出成 CSV 文件。",
+   "gold": "SELECT count(DISTINCT 大区) FROM customers",
+   "check": {
+    "file": "*.csv",
+    "file_rows_col": 0
+   }
+  },
+  {
+   "id": "dashboard",
+   "q": "做一个销售看板：总销售额 KPI、各大区销售额柱状图、按月销售趋势，只统计已支付订单。",
+   "gold": "SELECT 1",
+   "check": {
+    "dashboard": true
+   }
+  },
+  {
+   "id": "trap_gmv_doc",
+   "trap": true,
+   "q": "按公司口径，2025 年各大区的 GMV 分别是多少？哪个大区最高？",
+   "gold": "SELECT c.大区, round(sum(o.数量*p.单价),2) FROM orders o JOIN customers c USING(customer_id) JOIN products p USING(product_id) WHERE o.状态='paid' AND c.等级<>'C' AND year(o.下单日期)=2025 GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "num_cols": [
+     1
+    ]
+   }
+  },
+  {
+   "id": "trap_active_customers",
+   "trap": true,
+   "q": "2025 年有多少活跃客户？",
+   "gold": "SELECT count(*) FROM (SELECT customer_id FROM orders WHERE 状态='paid' AND year(下单日期)=2025 GROUP BY 1 HAVING count(*)>=20)",
+   "check": {
+    "num_cols": [
+     0
+    ]
+   }
+  },
+  {
+   "id": "trap_target_wan",
+   "trap": true,
+   "q": "各大区 2026 年 1–8 月已支付销售额分别完成了 2026 年全年目标的百分之多少？完成率最高的是哪个大区？",
+   "gold": "SELECT c.大区, sum(o.数量*p.单价)/(max(t.\"目标(万元)\")*10000) r FROM orders o JOIN customers c USING(customer_id) JOIN products p USING(product_id) JOIN targets26 t ON t.大区=c.大区 WHERE o.状态='paid' AND year(o.下单日期)=2026 GROUP BY 1 ORDER BY 2 DESC LIMIT 1",
+   "check": {
+    "text_cols": [
+     0
+    ],
+    "pct_cols": [
+     1
+    ]
+   }
+  },
+  {
+   "id": "trap_returns_dedup",
+   "trap": true,
+   "q": "退货登记表里一共涉及多少个不同的订单？这些订单里有多少笔在订单表中的状态并不是 refund？",
+   "gold": "WITH r AS (SELECT DISTINCT CAST(substr(订单号,3) AS BIGINT) oid FROM returns) SELECT (SELECT count(*) FROM r), (SELECT count(*) FROM r JOIN orders o ON o.order_id=r.oid WHERE o.状态<>'refund')",
+   "check": {
+    "num_cols": [
+     0,
+     1
+    ]
+   }
+  }
+ ]
+}

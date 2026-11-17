@@ -1,0 +1,19 @@
+{
+  "name": "plan card approved → question card answered → approval card denied (save_skill is external)",
+  "mode": "plan",
+  "fixtures": false,
+  "interact": {"plan": "approve", "question": "按客户数", "approval": "deny"},
+  "user": "先出个计划，再问我排序方式，最后把流程存成 skill",
+  "model": [
+    {"tool_calls": [{"name": "exit_plan_mode", "arguments": {"plan": "1. 问排序方式\n2. 保存 skill"}}]},
+    {"tool_calls": [{"name": "ask_user", "arguments": {"question": "按什么排序？", "options": ["按客户数", "按名称"]}}]},
+    {"tool_calls": [{"name": "save_skill", "arguments": {"name": "region-rank", "description": "按大区排名", "instructions": "1. 查询"}}]},
+    {"content": "好的，按客户数排序；skill 未保存。"}
+  ],
+  "expect": {
+    "tool_calls": [["exit_plan_mode"], ["ask_user"], ["save_skill"], []],
+    "results": [{"tool": "exit_plan_mode", "error": false}, {"tool": "ask_user", "error": false}, {"tool": "save_skill", "error": true}],
+    "reason": "done",
+    "text_contains": "按客户数"
+  }
+}
