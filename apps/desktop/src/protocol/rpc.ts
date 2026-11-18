@@ -37,6 +37,7 @@ export type Method =
   | "memory/qsql"
   | "memory/topics"
   | "mode/set"
+  | "model/preset"
   | "model/set"
   | "net/test"
   | "network/set"

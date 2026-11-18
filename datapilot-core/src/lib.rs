@@ -13,6 +13,7 @@ pub mod llm;
 pub mod mcp;
 pub mod newapi;
 pub mod memory;
+pub mod model_table;
 pub mod notes;
 pub mod paths;
 pub mod permissions;

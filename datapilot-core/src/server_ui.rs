@@ -22,7 +22,7 @@ pub const METHODS: &[&str] = &["session/list", "session/create", "session/rename
     "chrome/status", "chrome/install", "newapi/status", "newapi/login", "newapi/tokens", "newapi/use", "newapi/create", "newapi/logout",
     "memory/topics", "dashboard/list", "dashboard/get", "dashboard/save", "dashboard/patch", "dashboard/pin", "dashboard/delete",
     "skill/list", "skill/get", "skill/save", "skill/delete", "files/list", "files/import", "files/save", "files/image", "computer/permissions", "computer/request", "app/about",
-    "session/fork", "app/doctor"];
+    "session/fork", "app/doctor", "model/preset"];
 
 /// 64×32 PNG, left half red, right half blue (vision probe).
 const PROBE_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAN0lEQVR42u3PsQkAAAzDsPz/dHpDh2wCzwalybTxvgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+HY6S/hqZZnSdgAAAABJRU5ErkJggg==";
@@ -410,6 +410,13 @@ impl Server {
                 Ok(v)
             }
             "app/doctor" => Ok(self.doctor(p)),
+            // resolved capabilities of a model (saved ones, else built-in table / preset) and the plain preset
+            "model/preset" => {
+                let model = p["model"].as_str().ok_or("missing model")?.to_string();
+                let saved = p.get("capabilities").filter(|v| v.is_object()).map(|v| serde_json::from_value(v.clone())).transpose().map_err(|e| format!("bad capabilities: {e}"))?;
+                let m = ModelRef { provider_id: String::new(), model: model.clone(), capabilities: saved };
+                Ok(json!({"capabilities": m.caps(), "preset": crate::types::Capabilities::preset(&model), "table_size": crate::model_table::len()}))
+            }
             m => Err(format!("method not found: {m}")),
         }
     }
@@ -524,12 +531,12 @@ impl Server {
         let mut msg = ChatMessage::user("What two colors are in this image? Answer with two English color words only.");
         msg.images = Some(vec![ImagePart { data_url: format!("data:image/png;base64,{PROBE_PNG}") }]);
         let vision = c.stream(&vm, &[msg], &[], &never, &mut |_| {}).map(|r| { let l = r.content.to_lowercase(); l.contains("red") && l.contains("blue") }).unwrap_or(false);
-        let mut base = if r["capabilities"].is_object() { r["capabilities"].clone() } else { serde_json::to_value(m.caps()).unwrap() };
+        let mut base = serde_json::to_value(m.caps()).unwrap();
         base["toolCallMode"] = json!(if native { "native" } else { "hermes" });
         base["supportsVision"] = json!(vision);
         // context length reported by the server's /models (vLLM, LM Studio, OpenRouter…); New API gateways report none
         let reported = c.list_models_meta().ok().and_then(|l| l.into_iter().find(|x| x.0 == m.model).and_then(|x| x.1));
-        if let Some(n) = reported { base["contextWindow"] = json!(n); }
+        if let Some(n) = reported { base["contextWindow"] = json!(n); base["contextSource"] = json!("server"); }
         patch_config(cfg_path, &json!({"roles": {role: {"capabilities": base}}}))?;
         Ok(json!({"ms": ms, "native_tools": native, "reasoning": !res.reasoning.is_empty(), "vision": vision, "context_window": reported,
                   "usage": res.usage.map(|u| json!({"prompt": u.prompt_tokens, "completion": u.completion_tokens})), "reload": self.reload()}))

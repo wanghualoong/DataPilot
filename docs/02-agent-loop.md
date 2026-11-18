@@ -37,6 +37,12 @@
   - **保留用户原话**（参照 Codex `COMPACT_USER_MESSAGE_MAX_TOKENS`）：压缩后按从新到旧保留用户自己说过的话，预算 min(20k, 窗口/10) token，放在摘要之后、尾部之前；口径、更正不再只靠摘要转述。
   - **总结请求超长**：按 token 把待总结部分装进总结模型的窗口（保留上次摘要，从最早的消息删起）；服务端仍报“上下文过长”时缩小预算重试，最多 3 次（参照 Codex 的删旧重试）。
   - **触发点**：取模型报告的真实用量和估算中较大者（真实用量写入 transcript 的 `usage` 记录，重开会话后仍有效；估算计入系统提示与工具定义）；阈值 = 窗口 × `compactThreshold`（默认 80%），设置了 `compactTokenLimit` 时取两者较小值。
+  - **上下文窗口从哪来**（参照 Codex：自带模型表 + 最长前缀匹配，查不到用默认值，用户可覆盖；Codex 不会去探测服务器）。优先级：手动填写 > 服务端报告（能力测试时读 `/models` 的 `max_model_len` / `context_length`，直连 vLLM / LM Studio / OpenRouter 有，经 New API 网关没有）> 从报错中学到（"maximum context length is N"）> **内置模型表** > 按模型系列估计 > 默认 32k。
+    - 内置模型表 `datapilot-core/data/model_table.json`（约 1500 个 chat 模型，编译进核心），由 `scripts/gen_model_table.py` 从 LiteLLM 的公开模型数据（同名模型优先取厂商官方 API 的值，否则取各家中位数）和 Codex 的 `models.json`（OpenAI 模型）生成；更新时重新运行该脚本。
+    - 匹配：先精确匹配，再取最长的、在 `-` `:` `@` 处断开的前缀（`qwen3.8-27b-local` → `qwen3.8-27b`），也会去掉命名空间（`tencent/Hy4-preview` → `hy4-preview`）。
+    - 最大输出取表中值但限制在 1k–16k（New API 按 max_tokens 预扣额度，过大会被拒）。
+    - 旧配置里保存的窗口如果正好等于旧预设值（32k / 128k，没有来源字段），视为未手动设置，改用模型表；其他值视为手动填写，保留。
+    - 设置 → 角色 显示当前窗口及来源（内置模型表 / 服务端报告 / 从报错中学到 / 手动填写 / 默认值）。
   - **摘要模型**：`compactModel` = `fast`（默认，快速模型）或 `main`（主模型，质量更好）。
   - **上下文窗口识别**：「测试」按钮读取服务端 `/models` 报告的上下文长度（vLLM `max_model_len`、LM Studio / OpenRouter `context_length`）并写入能力配置；New API 网关不报告时用内置预设；对话中服务端报“超出上下文”并给出上限时，自动按该值调小并记住。
 - 手动压缩：⌘⇧K 或工具栏按钮。Agent 运行中点击不会报错，而是排队：在本轮下一次调用模型之前（或本轮结束时）执行。

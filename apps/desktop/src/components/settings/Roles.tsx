@@ -1,5 +1,5 @@
 import { Status } from "../ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { L } from "../../i18n";
 import { useApp } from "../../store";
 import { core } from "../../transport";
@@ -11,25 +11,27 @@ const ROLES: [string, string, string][] = [
   ["vision", L("视觉模型（可选）", "Vision model (optional)"), L("看图（截图、图表）", "Images (screenshots, charts)")],
 ];
 
-/** Same presets as the core's Capabilities::preset (what a role uses while no capabilities are saved). */
-function preset(model: string): any {
-  const m = model.toLowerCase();
-  const c: any = { contextWindow: 32768, maxOutputTokens: 4096, toolCallMode: "native", supportsParallelToolCalls: false, sendParallelToolCallsParam: false,
-    thinkingStyle: "none", thinkingEnabled: false, reasoningReplay: "never", supportsVision: false, coordinateMode: "relative1000" };
-  if (m.includes("qwen3") || m.includes("qwq")) Object.assign(c, { contextWindow: 131072, maxOutputTokens: 8192, thinkingStyle: "qwenChatTemplate", supportsParallelToolCalls: true });
-  else if (m.includes("qwen")) Object.assign(c, { maxOutputTokens: 8192, supportsParallelToolCalls: true });
-  if (m.includes("deepseek")) {
-    Object.assign(c, { contextWindow: 131072, maxOutputTokens: 8192 });
-    if (m.includes("reasoner") || m.includes("-r1") || m.endsWith("r1")) { if (m.includes("r1")) c.toolCallMode = "hermes"; }
-    else Object.assign(c, { reasoningReplay: "currentTurn", thinkingStyle: "thinkingObject" });
+/** Where the context window came from (core `Capabilities.contextSource`). */
+export function sourceLabel(s?: string): string {
+  switch (s) {
+    case "manual": return L("手动填写", "manual");
+    case "server": return L("服务端报告", "reported by server");
+    case "learned": return L("从报错中学到", "learned from an error");
+    case "table": return L("内置模型表", "built-in model table");
+    case "preset": return L("按模型系列估计", "model-family guess");
+    default: return L("默认值，建议填写", "default — please set");
   }
-  if (["vl", "vision", "gpt-4o", "qwen3.5", "qwen3.6", "qwen3.7", "qwen3.8", "qwen3.9", "qwen4", "deepseek-v4"].some((k) => m.includes(k))) c.supportsVision = true;
-  if (m.includes("qwen2.5-vl")) c.coordinateMode = "absolutePixels";
-  return c;
 }
+const fmtK = (n?: number) => (n ? (n >= 1000 ? `${Math.round(n / 1024)}k` : String(n)) : "?");
 
 function CapsEditor({ role, model, caps, onClose }: { role: string; model: string; caps: any; onClose: () => void }) {
-  const [c, setC] = useState<any>({ ...preset(model), ...caps });
+  // resolved by the core: saved capabilities, else built-in model table / preset (one source of truth)
+  const [c, setC] = useState<any>(caps ?? {});
+  const [init, setInit] = useState<any>(caps ?? {});
+  const [preset, setPreset] = useState<any>();
+  useEffect(() => {
+    core.request("model/preset", { model, capabilities: caps ?? null }).then((r: any) => { setC(r.capabilities); setInit(r.capabilities); setPreset(r.preset); }).catch(() => {});
+  }, [model]);
   const [extra, setExtra] = useState(caps?.extraBody ? JSON.stringify(caps.extraBody) : "");
   const [err, setErr] = useState<string>();
   const num = (k: string, label: string) => <label className="fld"><span>{label}</span><input type="number" value={c[k] ?? ""} onChange={(e) => setC({ ...c, [k]: Number(e.target.value) })} /></label>;
@@ -44,13 +46,16 @@ function CapsEditor({ role, model, caps, onClose }: { role: string; model: strin
     }
     // config/set merges objects: drop the saved capabilities first so keys removed here (extraBody entries, temperature after 恢复预设) really go away
     if (caps && !(await patch({ roles: { [role]: { capabilities: null } } }))) return;
-    if (await patch({ roles: { [role]: { capabilities: { ...c, extraBody } } } })) onClose();
+    // a window typed here is the user's own value: it wins over the table and is not replaced later
+    const contextSource = c.contextWindow !== init.contextWindow ? "manual" : c.contextSource;
+    if (await patch({ roles: { [role]: { capabilities: { ...c, extraBody, contextSource } } } })) onClose();
   };
   return (
     <div className="modal" onClick={onClose}>
       <div className="modalbox" onClick={(e) => e.stopPropagation()}>
         <h3>{L("模型能力", "Capabilities")} · {model}</h3>
         {num("contextWindow", L("上下文窗口（tokens）", "Context window"))}
+        <div className="muted small">{L("来源：", "Source: ") + sourceLabel(c.contextSource)}</div>
         {num("maxOutputTokens", L("最大输出（tokens）", "Max output"))}
         {sel("toolCallMode", L("工具调用方式", "Tool calls"), ["native", "hermes"])}
         {sel("thinkingStyle", L("思考开关参数", "Thinking parameter"), ["none", "qwenChatTemplate", "deepseekChatTemplate", "enableThinkingTop", "thinkingObject"])}
@@ -64,7 +69,7 @@ function CapsEditor({ role, model, caps, onClose }: { role: string; model: strin
         {err && <div className="notice err small">{err}</div>}
         <div className="row">
           {/* like Swift: the form gets the model's preset; the extra-body text is kept; nothing is saved until 保存 */}
-          <button title={L("按模型名称恢复内置预设（保存后生效）", "Restore the built-in preset for this model (applies on Save)")} onClick={() => setC(preset(model))}>{L("恢复预设", "Reset to preset")}</button>
+          <button title={L("按模型名称恢复内置预设（保存后生效）", "Restore the built-in preset for this model (applies on Save)")} disabled={!preset} onClick={() => setC(preset)}>{L("恢复预设", "Reset to preset")}</button>
           <span className="grow" />
           <button onClick={onClose}>{L("取消", "Cancel")}</button>
           <button className="primary" onClick={save}>{L("保存", "Save")}</button>
@@ -81,6 +86,11 @@ function RoleRow({ role, title, hint }: { role: string; title: string; hint: str
   const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState(false);
   const local = config?.settings?.localOnly;
+  const [win, setWin] = useState<any>();
+  useEffect(() => {
+    if (!cur) return setWin(undefined);
+    core.request("model/preset", { model: cur.model, capabilities: cur.capabilities ?? null }).then((r: any) => setWin(r.capabilities)).catch(() => setWin(undefined));
+  }, [cur?.model, JSON.stringify(cur?.capabilities ?? null)]);
   const marks = config?.settings?.localMarks ?? {};
   const models: [string, string, string][] = (config?.providers ?? []).flatMap((p: any) =>
     (config?.modelCache?.[p.id] ?? []).filter((m: string) => modelKind(m) === "chat" && (!local || marks[`${p.id}|${m}`] !== false)).map((m: string) => [p.id, p.name || p.id, m]));
@@ -112,6 +122,8 @@ function RoleRow({ role, title, hint }: { role: string; title: string; hint: str
           }}>{busy ? "…" : L("测试", "Test")}</button>
         <button disabled={!cur} onClick={() => setEdit(true)}>{L("能力…", "Capabilities…")}</button>
       </div>
+      {win && <div className="muted small">{L(`上下文 ${fmtK(win.contextWindow)} tokens（${sourceLabel(win.contextSource)}）· 最大输出 ${fmtK(win.maxOutputTokens)}`,
+        `Context ${fmtK(win.contextWindow)} tokens (${sourceLabel(win.contextSource)}) · max output ${fmtK(win.maxOutputTokens)}`)}</div>}
       <Status msg={msg} />
       {edit && cur && <CapsEditor role={role} model={cur.model} caps={cur.capabilities} onClose={() => setEdit(false)} />}
     </div>

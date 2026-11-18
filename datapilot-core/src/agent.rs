@@ -647,6 +647,7 @@ impl Agent {
         let mut caps = self.model.caps();
         if n >= caps.context_window { return; }
         caps.context_window = n;
+        caps.context_source = "learned".into();
         caps.max_output_tokens = caps.max_output_tokens.min(n / 4);
         self.model.capabilities = Some(caps.clone());
         let cfg = self.shared.paths.app_support.join("config.json");

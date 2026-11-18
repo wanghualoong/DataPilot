@@ -104,13 +104,17 @@ pub struct Capabilities {
     pub coordinate_mode: String,
     pub temperature: Option<f64>,
     pub extra_body: Option<Value>,
+    /// where `context_window` came from: manual | server (/models) | learned (error message) | table (built-in model
+    /// table) | preset (model family guess) | default. Empty in configs written before the model table.
+    pub context_source: String,
 }
 
 impl Default for Capabilities {
     fn default() -> Self {
         Capabilities { context_window: 32_768, max_output_tokens: 4096, tool_call_mode: "native".into(), supports_parallel_tool_calls: false,
                        send_parallel_tool_calls_param: false, thinking_style: "none".into(), thinking_enabled: false,
-                       reasoning_replay: "never".into(), supports_vision: false, coordinate_mode: "relative1000".into(), temperature: None, extra_body: None }
+                       reasoning_replay: "never".into(), supports_vision: false, coordinate_mode: "relative1000".into(), temperature: None, extra_body: None,
+                       context_source: String::new() }
     }
 }
 
@@ -136,7 +140,21 @@ impl Capabilities {
         if m.contains("vl") || m.contains("vision") || m.contains("gpt-4o") { c.supports_vision = true; }
         if m.contains("qwen2.5-vl") { c.coordinate_mode = "absolutePixels".into(); }
         if ["qwen3.5", "qwen3.6", "qwen3.7", "qwen3.8", "qwen3.9", "qwen4", "deepseek-v4"].iter().any(|k| m.contains(k)) { c.supports_vision = true; }
+        c.context_source = if c.context_window != 32_768 { "preset" } else { "default" }.into();
+        // built-in model table wins over the family guess; output stays moderate (New API pre-charges quota by
+        // max_tokens, and some upstreams reject values above their own cap)
+        if let Some((ctx, out)) = crate::model_table::lookup(model) {
+            c.context_window = ctx;
+            c.max_output_tokens = out.unwrap_or(8192).clamp(1024, 16_384).min((ctx / 4).max(1024));
+            c.context_source = "table".into();
+        }
         c
+    }
+
+    /// Context window the presets gave before the model table existed (configs saved then carry it without a source).
+    fn legacy_window(model: &str) -> usize {
+        let m = model.to_lowercase();
+        if m.contains("qwen3") || m.contains("qwq") || m.contains("deepseek") { 131_072 } else { 32_768 }
     }
 }
 
@@ -149,7 +167,19 @@ pub struct ModelRef {
 }
 
 impl ModelRef {
-    pub fn caps(&self) -> Capabilities { self.capabilities.clone().unwrap_or_else(|| Capabilities::preset(&self.model)) }
+    /// Saved capabilities, else the preset. Saved ones from before the model table whose window is just the old
+    /// preset value (not typed by the user) take the table's window.
+    pub fn caps(&self) -> Capabilities {
+        let Some(c) = &self.capabilities else { return Capabilities::preset(&self.model) };
+        let mut c = c.clone();
+        if c.context_source.is_empty() {
+            if c.context_window == Capabilities::legacy_window(&self.model) {
+                if let Some((ctx, _)) = crate::model_table::lookup(&self.model) { c.context_window = ctx; c.context_source = "table".into(); }
+            }
+            if c.context_source.is_empty() { c.context_source = "manual".into(); }
+        }
+        c
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
