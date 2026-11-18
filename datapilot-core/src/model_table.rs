@@ -43,7 +43,7 @@ mod tests {
         assert!(len() > 1000);
         assert_eq!(lookup("glm-5.3-flash").map(|x| x.0), Some(1_048_576));
         assert_eq!(lookup("GLM-5.3-Flash").map(|x| x.0), Some(1_048_576));
-        assert_eq!(lookup("qwen3.8-27b-local").map(|x| x.0), lookup("qwen3.8-27b").map(|x| x.0));
+        assert_eq!(lookup("qwen3.8-27b-local").map(|x| x.0), Some(262_144));   // DKU deployment, confirmed by the user
         assert!(lookup("tencent/Hy4-preview").is_some());
         assert_eq!(lookup("gpt-5.5").map(|x| x.0), Some(272_000));   // Codex's own value
         assert_eq!(lookup("no-such-model-xyz"), None);

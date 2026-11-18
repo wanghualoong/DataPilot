@@ -15,6 +15,10 @@ OFFICIAL = ["openai", "anthropic", "gemini", "vertex_ai-language-models", "zai",
 VENDOR_DOT = re.compile(r"^(?:[a-z]{2,7}\.)?(?:anthropic|deepseek|openai|meta|qwen|mistral|cohere|amazon|ai21|moonshot|moonshotai|zai|google|minimax|writer)\.")
 
 
+# DKU gateway's local deployments, confirmed by the user (2026-11-18)
+LOCAL_OVERRIDES = {"qwen3.8-27b-local": [262144, 131072]}
+
+
 def norm(key: str) -> str:
     n = key.lower().split("/")[-1]
     n = VENDOR_DOT.sub("", n)
@@ -53,6 +57,9 @@ def main():
             if isinstance(c, int) and c >= 2048:
                 prev = table.get(m["slug"].lower(), [c])
                 table[m["slug"].lower()] = [c] + prev[1:]
+    # deployments confirmed by the user (not in public data): exact names win over prefix matches
+    for name, v in LOCAL_OVERRIDES.items():
+        table[name] = v
     out = {"_source": "LiteLLM model_prices_and_context_window.json (MIT) + Codex models.json (Apache-2.0); regenerate with scripts/gen_model_table.py",
            "models": dict(sorted(table.items()))}
     sys.stdout.write(json.dumps(out, ensure_ascii=False, separators=(",", ":")) + "\n")
