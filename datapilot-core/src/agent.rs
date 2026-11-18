@@ -695,6 +695,7 @@ impl Agent {
                 ok => ok,
             },
         };
+        // an empty summary falls through as an error above (notes fallback applies there too)
         match r {
             Ok(summary) if !summary.is_empty() => {
                 // Codex-style: the user's own words survive verbatim (newest first within the budget), then the recent tail

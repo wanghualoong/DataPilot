@@ -247,10 +247,25 @@ impl Client {
     pub fn complete(&self, model: &ModelRef, messages: &[ChatMessage]) -> Result<Completion, LlmError> {
         let never = AtomicBool::new(false);
         let mut r = self.stream(model, messages, &[], &never, &mut |_| {})?;
+        // always-thinking models (glm-5.x: thinking cannot be switched off) may spend the whole output budget on
+        // reasoning and return no answer: retry once with room to finish thinking and answer
+        if out_of_budget(&r) {
+            let mut m = model.clone();
+            let mut caps = m.caps();
+            let used = caps.max_output_tokens;
+            caps.max_output_tokens = (used * 4).max(16_384).min((caps.context_window / 2).max(used));
+            if caps.max_output_tokens > used {
+                m.capabilities = Some(caps);
+                r = self.stream(&m, messages, &[], &never, &mut |_| {})?;
+            }
+        }
         r.tool_calls.clear();
         Ok(r)
     }
 }
+
+/// The output limit was hit before any answer text (all of it went to reasoning).
+pub fn out_of_budget(r: &Completion) -> bool { r.finish.as_deref() == Some("length") && r.content.trim().is_empty() }
 
 /// Request body — same fields and rules as the Swift `buildBody`.
 pub fn build_body(model: &str, caps: &Capabilities, messages: &[ChatMessage], tools: &[ToolSpec], stream: bool) -> Value {

@@ -73,6 +73,8 @@ pub fn render(msgs: &[ChatMessage]) -> String {
 pub fn extract_summary(text: &str) -> String {
     let mut t = text.to_string();
     if let (Some(a), Some(b)) = (t.find("<analysis>"), t.find("</analysis>")) { if a <= b { t.replace_range(a..b + 11, ""); } }
+    // cut off inside the draft (output limit): no summary at all — a half-written <analysis> is not a handoff
+    if t.contains("<analysis>") && !t.contains("<summary>") { return String::new(); }
     if let Some(a) = t.find("<summary>") {
         t = t[a + 9..].to_string();
         if let Some(b) = t.find("</summary>") { t.truncate(b); }
@@ -120,20 +122,39 @@ pub fn summarize(paths: &Paths, head: &[ChatMessage], notes: Option<&str>, clien
     let mut m = model.clone();
     let mut caps = m.caps();
     caps.thinking_enabled = false;
-    caps.max_output_tokens = caps.max_output_tokens.min(4096);
+    // room for the <analysis> draft and, on always-thinking models, the reasoning before it (glm-5.3-flash spent
+    // all of 4096 on reasoning); non-thinking models stop by themselves, this is only a cap
+    caps.max_output_tokens = 12_000.min(caps.context_window / 4).max(4096);
     let sys = crate::prompt::prompt(paths, "compact");
     let notes_block = notes.filter(|n| !n.is_empty()).map(|n| format!("\n\n当前会话笔记（口径以此为准）/ Session notes:\n{n}")).unwrap_or_default();
     let fixed = caps.max_output_tokens + estimate_tokens(&sys) + estimate_tokens(&notes_block) + 500;
     let mut limit = (caps.context_window.saturating_sub(fixed) * 85 / 100).max(2000);
     m.capabilities = Some(caps);
-    for attempt in 0..4 {
+    let mut grown = false;
+    for attempt in 0..5 {
         let h = fit_head(head, limit);
         let dropped = head.len() - h.len();
         let omitted = if dropped > 0 { format!("（最早的 {dropped} 条消息超出总结模型的上下文，已省略 / {dropped} oldest messages omitted）\n\n") } else { String::new() };
         let user = format!("以下是需要压缩的对话 / Conversation to compact:\n\n{omitted}{}{notes_block}", render(&h));
         match client.complete(&m, &[ChatMessage::system(sys.clone()), ChatMessage::user(user)]) {
-            Ok(r) => return Ok(extract_summary(&r.content)),
-            Err(LlmError::ContextTooLong(b)) if attempt < 3 => {
+            Ok(r) => {
+                let truncated = r.finish.as_deref() == Some("length") && !r.content.contains("</summary>");
+                // cut off by the output limit: once more with twice the room (input budget shrinks accordingly)
+                if truncated && !grown && caps_out(&m) * 2 <= caps_window(&m) / 2 {
+                    grown = true;
+                    let mut c = m.caps(); c.max_output_tokens *= 2; let add = c.max_output_tokens / 2; m.capabilities = Some(c);
+                    limit = limit.saturating_sub(add).max(2000);
+                    continue;
+                }
+                let s = extract_summary(&r.content);
+                if s.is_empty() {
+                    return Err(if crate::llm::out_of_budget(&r) || truncated {
+                        format!("模型的输出额度（{} tokens）被思考过程用完，没有写出摘要 / output limit reached before the summary", caps_out(&m))
+                    } else { "模型没有返回摘要 / empty summary".into() });
+                }
+                return Ok(s);
+            }
+            Err(LlmError::ContextTooLong(b)) if attempt < 4 => {
                 limit = crate::llm::context_limit_from_error(&b).map(|n| n.saturating_sub(fixed) * 85 / 100).filter(|&n| n < limit).unwrap_or(limit * 2 / 3).max(1000);
             }
             Err(e) => return Err(e.to_string()),
@@ -141,6 +162,9 @@ pub fn summarize(paths: &Paths, head: &[ChatMessage], notes: Option<&str>, clien
     }
     Err("压缩请求仍超出模型上下文 / compaction request still too long".into())
 }
+
+fn caps_out(m: &ModelRef) -> usize { m.caps().max_output_tokens }
+fn caps_window(m: &ModelRef) -> usize { m.caps().context_window }
 
 #[cfg(test)]
 mod tests {
@@ -158,6 +182,8 @@ mod tests {
         let (h, t) = split(&v, 32768);
         assert!(!h.is_empty() && t[0].role != Role::Tool);
         assert_eq!(extract_summary("<analysis>x</analysis><summary> ok </summary>"), "ok");
+        assert_eq!(extract_summary("<analysis>按时间顺序梳理…（被截断"), "");
+        assert_eq!(extract_summary("<analysis>a</analysis><summary>1. 目标…（被截断"), "1. 目标…（被截断");
     }
 
     #[test]
