@@ -4,6 +4,11 @@
 - 仓库用 git 管理（只在本机，不推送到任何远程）。**每完成一项改动（代码、文档、配置）并通过相关测试后，立即提交一次**；一次提交只包含一件事，提交信息用一句话说明做了什么。
 - 改动前先 `git status` 确认工作区干净；出问题时用 `git diff` / `git checkout -- <文件>` / `git revert` 回退，不要靠手工恢复。
 - 不提交：`build/`、`target/`、`node_modules/`、`dist/`、`public/web/`、安装包、`.datapilot/`、任何密钥或 config.json。
+- **备份（与 git 配合）**：
+  1. 动手改代码前：`git status` 必须干净（有未提交改动先提交），这样任何改动都能 `git diff` 查看、`git checkout -- <文件>` / `git revert` 撤回。
+  2. 每完成一项改动并测试通过：`git add -A && git commit -m "…"`，然后运行 `bash scripts/backup.sh`，把完整历史打成 git bundle 存到项目外的 `~/DataPilot-backups/`（保留最近 30 份），防止整个文件夹或 `.git` 丢失。
+  3. 删除、批量改写、大重构之前：先提交 + 备份一次；删除不在 git 里的文件（如 `build/` 下的产物）前，先打 tar 包到 `build/backup/`。
+  4. 恢复：单个文件 `git checkout <提交> -- <文件>`；整个仓库 `git clone ~/DataPilot-backups/<文件>.bundle DataPilot-restored`。
 - 2026-11-17 事故：一个 Python 补丁脚本在断言失败前用 `open(p,'w')` 打开了 `agent.rs`，把文件清空。之后修改文件一律**先读入、全部替换成功后再写回**（或用 Edit 工具）；写入失败不得留下空文件。
 
 ## 结构
