@@ -316,8 +316,13 @@ export const useApp = create<AppState>((set, get) => {
     openSettings(tab) { set({ settingsTab: tab ?? "providers" }); },
     async compactNow() {
       const id = get().selected;
-      if (!id || get().chats[id]?.running) return;
-      await core.request("compact", { session: id }).catch(get().fail);
+      if (!id) return;
+      await ensureOpen(id);
+      const running = get().chats[id]?.running;
+      get().note(running ? L("已排队：本轮当前这一步完成后立即压缩上下文", "Queued: the context is compacted right after the current step")
+                         : L("正在压缩上下文…（较长的对话可能需要一两分钟）", "Compacting the context… (may take a minute or two)"));
+      const r = await core.request("compact", { session: id }).catch((e) => { get().fail(e); return null; });
+      if (r?.queued && !running) get().note(L("Agent 正在运行：已排队，本轮当前这一步完成后压缩", "A turn is running: queued until the current step ends"));
     },
     async refreshTables() {
       const id = get().selected;

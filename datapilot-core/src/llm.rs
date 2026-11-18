@@ -21,7 +21,20 @@ pub fn context_limit_from_error(body: &str) -> Option<usize> {
 impl std::fmt::Display for LlmError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            LlmError::Http(c, b) => write!(f, "HTTP {c}: {}", crate::text::prefix(b, 600)),
+            LlmError::Http(c, b) => {
+                // gateways answer timeouts with an empty body or an nginx HTML page: say what it means instead
+                let t = b.trim();
+                if t.is_empty() || t.starts_with('<') {
+                    let why = match c {
+                        504 => "网关超时：模型在网关时限内没有开始回复（输入太长或服务繁忙）/ gateway timeout",
+                        502 => "网关错误：模型服务不可用 / bad gateway",
+                        503 => "服务暂不可用（繁忙或维护中）/ service unavailable",
+                        429 => "请求过于频繁，被限流 / rate limited",
+                        _ => "模型服务返回错误 / server error",
+                    };
+                    write!(f, "HTTP {c}（{why}）")
+                } else { write!(f, "HTTP {c}: {}", crate::text::prefix(b, 600)) }
+            }
             LlmError::ContextTooLong(b) => write!(f, "context too long: {}", crate::text::prefix(b, 300)),
             LlmError::Bad(s) => write!(f, "bad response: {s}"),
             LlmError::Net(s) => write!(f, "network error: {s}"),
@@ -228,17 +241,14 @@ impl Client {
         Ok(ids)
     }
 
+    /// One-shot completion, no tools. Streamed under the hood: gateways (nginx `proxy_read_timeout`, often 60 s) cut a
+    /// non-streaming request whose whole answer takes longer than that (HTTP 504); with SSE only the first token has to
+    /// arrive in time. A 504 during a long prefill is retried — the server has usually cached the prefix by then.
     pub fn complete(&self, model: &ModelRef, messages: &[ChatMessage]) -> Result<Completion, LlmError> {
-        let caps = model.caps();
-        let body = build_body(&model.model, &caps, messages, &[], false);
         let never = AtomicBool::new(false);
-        let resp = self.with_retry(&never, || self.post(&body))?;
-        let v: Value = serde_json::from_str(&resp.into_string().map_err(|e| LlmError::Net(e.to_string()))?).map_err(|e| LlmError::Bad(e.to_string()))?;
-        let msg = v.pointer("/choices/0/message").ok_or_else(|| LlmError::Bad(crate::text::prefix(&v.to_string(), 300)))?;
-        let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
-        let (c, r) = split_think(&content);
-        let usage = v.get("usage").map(|u| Usage { prompt_tokens: u["prompt_tokens"].as_u64().unwrap_or(0) as usize, completion_tokens: u["completion_tokens"].as_u64().unwrap_or(0) as usize });
-        Ok(Completion { content: c, reasoning: r, tool_calls: vec![], finish: None, usage })
+        let mut r = self.stream(model, messages, &[], &never, &mut |_| {})?;
+        r.tool_calls.clear();
+        Ok(r)
     }
 }
 

@@ -152,7 +152,7 @@ export function Chat({ id }: { id: string }) {
               useApp.setState({ showContext: on });
               if (on && !ctxCount) useApp.getState().note(L("本会话还没有注入过上下文：发出第一条消息后，每轮注入的记忆 / 笔记 / 数据表状态会显示在对应消息上方。", "No context injected yet — it appears above each message after you send one."));
             }} />
-          <IconBtn icon={Shrink} disabled={!!chat?.running} title={L("压缩上下文：把较早的对话总结成摘要，释放模型上下文（同 /compact，⌘⇧K）", "Compact: summarize earlier turns (same as /compact, ⌘⇧K)")} onClick={() => compactNow()} />
+          <IconBtn icon={Shrink} title={L("压缩上下文：把较早的对话总结成摘要，释放模型上下文（同 /compact，⌘⇧K）；运行中点击会在当前这一步完成后压缩", "Compact: summarize earlier turns (same as /compact, ⌘⇧K); while running, it happens after the current step")} onClick={() => compactNow()} />
           <Popover align="right" caret={false} title={L("导出对话（也可输入 /export）", "Export chat (or type /export)")} label={<Share {...ic} />}>
             <MenuItem onClick={() => exportChat("md")}>Markdown (.md)</MenuItem>
             <MenuItem onClick={() => exportChat("html")}>{L("网页 (.html)", "HTML (.html)")}</MenuItem>

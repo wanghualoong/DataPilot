@@ -44,7 +44,7 @@ class H(BaseHTTPRequestHandler):
             res = sorted(({"index": i, "relevance_score": len(q & set(d)) / (len(q) or 1)} for i, d in enumerate(body["documents"])), key=lambda r: -r["relevance_score"])
             return self._json({"results": res[: body.get("top_n") or len(res)]})
         msgs = body.get("messages", [])
-        if not body.get("stream"):
+        if not body.get("stream") or not body.get("tools"):   # one-shot calls (streamed by the core since 504 fix)
             sys_txt = msgs[0]["content"] if msgs else ""
             if "记忆抽取器" in sys_txt:
                 content = json.dumps({"memories": [{"scope": "dataset", "kind": "rule", "content": "计算销售额时剔除状态为 refund 的订单", "source": "correction"}]}, ensure_ascii=False)
@@ -54,6 +54,11 @@ class H(BaseHTTPRequestHandler):
                 content = "# 会话标题 / Title\n_一句话描述本会话在分析什么_\n大区销售额分析\n\n# 口径与定义 / Definitions\n_指标公式_\n- 剔除 refund"
             else:
                 content = "<analysis>草稿</analysis><summary>用户在分析大区销售额，已导入 orders。</summary>"
+            if body.get("stream"):
+                self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.end_headers()
+                for o in [chunk({"role": "assistant"}), chunk({"content": content}), chunk({}, "stop"), "data: [DONE]\n\n"]:
+                    self.wfile.write(o.encode()); self.wfile.flush()
+                return
             return self._json({"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 100, "completion_tokens": 20}})
 
         tool_msgs = [m for m in msgs if m.get("role") == "tool"]

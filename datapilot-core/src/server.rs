@@ -186,7 +186,12 @@ impl Server {
                 let id = p["session"].as_str().ok_or("missing session")?.to_string();
                 let agent = self.sessions.lock().unwrap().get(&id).map(|e| e.agent.clone()).ok_or("unknown session")?;
                 let emit = self.emitter(&id);
-                let mut a = agent.try_lock().map_err(|_| "a turn is running")?;
+                // a turn holds the agent: queue it — the turn compacts before its next model round (or when it ends)
+                let Ok(mut a) = agent.try_lock() else {
+                    let s = self.shared(p)?;
+                    s.compact_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                    return Ok(json!({"compacted": false, "queued": true}));
+                };
                 Ok(json!({"compacted": a.compact(&emit, true)}))
             }
             "memory/dream" => {

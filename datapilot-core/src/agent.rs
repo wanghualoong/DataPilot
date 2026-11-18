@@ -428,7 +428,7 @@ impl Agent {
             let specs = self.tool_specs(mode);
             let system = self.system_prompt(mode);
             let overhead = estimate_tokens(&system) + specs.iter().map(spec_tokens).sum::<usize>();
-            self.maybe_compact(emit, overhead);
+            if self.shared.compact_requested.swap(false, std::sync::atomic::Ordering::SeqCst) { self.compact(emit, true); } else { self.maybe_compact(emit, overhead); }
             self.consume_recall(&turn, emit);
             compact::prune_images(&mut self.context, 3);
             let mut msgs = vec![ChatMessage::system(system)];
@@ -482,6 +482,8 @@ impl Agent {
             if self.shared.cancelled() { break "cancelled"; }
             self.deliver_interjections(&turn, emit);
         };
+        // compaction asked for during the last round: do it now rather than at the start of the next turn
+        if self.shared.compact_requested.swap(false, std::sync::atomic::Ordering::SeqCst) { self.compact(emit, true); }
         emit(events::turn_finished(&turn, reason));
         self.after_turn(had_tools, emit);
         reason.to_string()
@@ -680,7 +682,19 @@ impl Agent {
         }
         let used_notes = via_notes.is_some();
         let (sm, sc) = if self.shared.settings.compact_model == "main" { (self.model.clone(), self.client.clone()) } else { (fm, fc) };
-        let r = match via_notes { Some(s) => Ok(s), None => compact::summarize(&self.shared.paths, &head, self.notes.text().as_deref(), &sc, &sm) };
+        let notes_fallback = || self.notes.text().filter(|_| !self.notes.is_effectively_empty())
+            .map(|t| format!("{}{}", notes::NOTES_SUMMARY_PREFIX, notes::capped_sections(&t, notes::SECTION_CAP_CHARS)));
+        let r = match via_notes {
+            Some(s) => Ok(s),
+            None => match compact::summarize(&self.shared.paths, &head, self.notes.text().as_deref(), &sc, &sm) {
+                // the summary call failed (gateway timeout, overload…): the session notes still carry goals and definitions
+                Err(e) => match notes_fallback() {
+                    Some(s) => { emit(events::notice(&format!("总结模型调用失败（{e}），改用会话笔记完成压缩 / summary failed, compacted from session notes"))); Ok(s) }
+                    None => Err(e),
+                },
+                ok => ok,
+            },
+        };
         match r {
             Ok(summary) if !summary.is_empty() => {
                 // Codex-style: the user's own words survive verbatim (newest first within the budget), then the recent tail

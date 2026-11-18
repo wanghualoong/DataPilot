@@ -120,7 +120,6 @@ export function Composer({ running }: { running: boolean }) {
         return st.btw(args);
       }
       case "compact":
-        if (running) return note(L("Agent 正在运行", "The agent is busy"));
         return st.compactNow();
       case "rewind": {
         const last = [...(chat?.items ?? [])].reverse().find((i: any) => i.kind === "user" && i.turn_id) as any;

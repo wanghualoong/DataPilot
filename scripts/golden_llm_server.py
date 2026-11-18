@@ -3,7 +3,8 @@
 Usage: python3 -I scripts/golden_llm_server.py <port> <case.json>
 The n-th streamed request (n = number of assistant messages already in the conversation) gets case["model"][n]:
   {"tool_calls": [{"name": "...", "arguments": {...}}, ...]}  or  {"content": "..."}
-Non-stream requests (title, notes, memory extraction, recall) get a neutral answer.
+One-shot requests (no tools: title, notes, memory extraction, recall, compaction summary) get a neutral answer —
+as SSE when streamed (the core streams one-shot calls too, so gateways don't cut them with a 504).
 Language-neutral on purpose: the Swift core today and a Rust core later replay the same cases against it.
 """
 import json, sys, time
@@ -32,10 +33,15 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         msgs = body.get("messages", [])
-        if not body.get("stream"):
+        if not body.get("stream") or not body.get("tools"):
             sys_txt = msgs[0]["content"] if msgs else ""
             content = ('{"memories":[]}' if "记忆抽取器" in sys_txt else '{"files":[]}' if "项目记忆清单" in sys_txt
                        else "黄金样本" if "标题" in sys_txt else "<summary>golden</summary>")
+            if body.get("stream"):
+                self.send_response(200); self.send_header("Content-Type", "text/event-stream"); self.end_headers()
+                for o in [chunk({"role": "assistant"}), chunk({"content": content}), chunk({}, "stop"), "data: [DONE]\n\n"]:
+                    self.wfile.write(o.encode()); self.wfile.flush()
+                return
             return self._json({"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
                                "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
         n = sum(1 for m in msgs if m.get("role") == "assistant")
