@@ -97,7 +97,9 @@ export function reduce(s: ChatState, e: AgentEvent): ChatState {
     case "question": return { ...s, items: [...s.items, { kind: "question", id: e.call_id, question: e.question, options: e.options }] };
     case "context_injected": return { ...s, items: [...s.items, { id: lid("ctx"), kind: "context", text: e.text } as Item] };
     case "todos_updated": return { ...s, todos: e.todos };
-    case "compacted": return { ...s, items: [...s.items, { id: lid("cmp"), kind: "compacted", text: e.summary } as Item] };
+    case "compacted": return { ...s, items: [...s.items, { id: lid("cmp"), kind: "compacted", text: e.summary } as Item],
+      // the meter shows the compacted size at once (the model's real count arrives with the next reply)
+      usage: s.usage && e.after_tokens ? { ...s.usage, context_tokens: e.after_tokens } : s.usage };
     case "usage": return { ...s, usage: { context_tokens: e.context_tokens, context_window: e.context_window } };
     case "memory_saved":
     case "notice": return { ...s, items: [...s.items, { id: lid("note"), kind: "notice", text: e.text } as Item] };

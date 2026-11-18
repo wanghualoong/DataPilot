@@ -68,6 +68,8 @@ pub struct Shared {
     writer: Mutex<()>,
     /// `compact` requested while a turn holds the agent: done before the next model round (or when the turn ends).
     pub compact_requested: AtomicBool,
+    /// A manual compaction (not a turn) holds the agent: `turn/start` waits for it instead of refusing.
+    pub compacting: AtomicBool,
 }
 
 impl Shared {
@@ -77,7 +79,7 @@ impl Shared {
         Shared { id, paths, workspace, project_root, kernel, perms, settings, secrets, broker: Broker::default(), todos: Mutex::new(json!([])),
                  transcript, index, datasets: Mutex::new(vec![]), family: Mutex::new(vec![]), pending_qsql: Mutex::new(vec![]), interjections: Mutex::new(vec![]),
                  computer_steps: AtomicUsize::new(0), model_caps: Mutex::new(None), ui: None,
-                 network: AtomicBool::new(false), writer: Mutex::new(()), compact_requested: AtomicBool::new(false) }
+                 network: AtomicBool::new(false), writer: Mutex::new(()), compact_requested: AtomicBool::new(false), compacting: AtomicBool::new(false) }
     }
     pub fn outputs_dir(&self) -> Option<PathBuf> { self.project_root.as_ref().map(|r| r.join("outputs")) }
     pub fn network(&self) -> bool { self.network.load(Ordering::SeqCst) }

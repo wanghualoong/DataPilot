@@ -47,4 +47,11 @@ describe("reduce", () => {
     expect(s.items[0].kind).toBe("user");
     expect(s.title).toBe("大区销售");
   });
+
+  it("compaction updates the context meter at once", () => {
+    let s: ChatState = { ...emptyChat(), usage: { context_tokens: 90000, context_window: 100000 } };
+    s = reduce(s, { type: "compacted", summary: "摘要", before_tokens: 90000, after_tokens: 12000 } as AgentEvent);
+    expect(s.usage?.context_tokens).toBe(12000);
+    expect(s.items.at(-1)?.kind).toBe("compacted");
+  });
 });

@@ -114,7 +114,12 @@ impl Server {
             "turn/start" => {
                 let id = p["session"].as_str().ok_or("missing session")?.to_string();
                 let agent = self.sessions.lock().unwrap().get(&id).map(|e| e.agent.clone()).ok_or_else(|| format!("unknown session {id}"))?;
-                if agent.try_lock().is_err() { return Err("a turn is already running in this session".into()); }
+                // busy with a manual compaction: the turn starts right after it (the message used to be dropped);
+                // busy with a turn: refuse (the UI sends interjections then). Re-check the lock: compaction may just have ended.
+                let compacting = self.shared(p).map(|s| s.compacting.load(std::sync::atomic::Ordering::SeqCst)).unwrap_or(false);
+                if agent.try_lock().is_err() && !compacting && agent.try_lock().is_err() {
+                    return Err("a turn is already running in this session".into());
+                }
                 let text = p["text"].as_str().unwrap_or("").to_string();
                 let skill = p["skill"].as_str().map(String::from);
                 let emit = self.emitter(&id);
@@ -186,13 +191,19 @@ impl Server {
                 let id = p["session"].as_str().ok_or("missing session")?.to_string();
                 let agent = self.sessions.lock().unwrap().get(&id).map(|e| e.agent.clone()).ok_or("unknown session")?;
                 let emit = self.emitter(&id);
+                // flag first (before taking the lock), so a turn/start racing with us always sees it
+                let s = self.shared(p)?;
+                s.compacting.store(true, std::sync::atomic::Ordering::SeqCst);
                 // a turn holds the agent: queue it — the turn compacts before its next model round (or when it ends)
                 let Ok(mut a) = agent.try_lock() else {
-                    let s = self.shared(p)?;
+                    s.compacting.store(false, std::sync::atomic::Ordering::SeqCst);
                     s.compact_requested.store(true, std::sync::atomic::Ordering::SeqCst);
                     return Ok(json!({"compacted": false, "queued": true}));
                 };
-                Ok(json!({"compacted": a.compact(&emit, true)}))
+                let done = a.compact(&emit, true);
+                drop(a);   // release the agent first, then clear the flag (turn/start re-checks the lock)
+                s.compacting.store(false, std::sync::atomic::Ordering::SeqCst);
+                Ok(json!({"compacted": done}))
             }
             "memory/dream" => {
                 let id = p["session"].as_str().ok_or("missing session")?.to_string();
