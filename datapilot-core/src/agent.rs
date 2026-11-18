@@ -661,8 +661,18 @@ impl Agent {
     pub fn compact(&mut self, emit: &Emit, force: bool) -> bool {
         if self.compact_failures >= 3 && !force { return false; }
         let before = self.estimate_context();
-        let (head, tail) = compact::split(&self.context, self.model.caps().context_window);
-        if head.is_empty() { return false; }
+        let window = self.model.caps().context_window;
+        let (mut head, mut tail) = compact::split(&self.context, window);
+        // manual compaction with a large window (1M: the recent tail alone keeps 40k tokens) would find nothing to
+        // fold; the user asked for it, so keep a short tail instead (as for a 32k model)
+        if head.is_empty() && force && window > 32_768 { (head, tail) = compact::split(&self.context, 32_768); }
+        if head.is_empty() {
+            if force {
+                emit(events::notice(&format!("对话还很短（约 {} tokens，上限 {} 的 {}%），没有需要压缩的内容 / Nothing to compact yet",
+                    before, window, before * 100 / window.max(1))));
+            }
+            return false;
+        }
         // only the previous summary is left to fold: compacting again would just re-summarise the summary
         if head.len() == 1 && head[0].is_meta && head[0].content.starts_with(compact::SUMMARY_PREFIX) {
             if force { emit(events::notice("上下文刚压缩过，暂时没有可再压缩的内容 / Nothing new to compact")); }
