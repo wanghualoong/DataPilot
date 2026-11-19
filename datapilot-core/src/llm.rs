@@ -52,11 +52,13 @@ pub enum Delta { Content(String), Reasoning(String), ToolCallStarted(usize, Stri
 pub struct Completion { pub content: String, pub reasoning: String, pub tool_calls: Vec<ToolCall>, pub finish: Option<String>, pub usage: Option<Usage> }
 
 /// `agent`: one-shot completions (may think silently for minutes). `stream_agent`: SSE — tokens (incl. reasoning) keep
-/// arriving, so a long silence means a stalled gateway: fail after STREAM_IDLE and retry instead of hanging 5 min per try.
+/// arriving, so a long silence means a stalled gateway: fail after STREAM_IDLE and retry. Not shorter: vLLM sends native
+/// tool-call arguments only when complete (measured 115 s of silence for ~200 rows); a cut after a long silence switches
+/// the model to hermes tool calls (agent.rs). Stop still works at once (the reader runs on a helper thread).
 #[derive(Clone)]
 pub struct Client { pub provider: Provider, api_key: Option<String>, agent: ureq::Agent, stream_agent: ureq::Agent, pub max_retries: u32 }
 
-pub const STREAM_IDLE: Duration = Duration::from_secs(90);
+pub const STREAM_IDLE: Duration = Duration::from_secs(300);
 
 /// shExpMatch glob (`*`, `?`), case-insensitive.
 pub fn sh_exp_match(host: &str, pat: &str) -> bool {

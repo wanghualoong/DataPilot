@@ -23,7 +23,7 @@ cargo build --release # target/release/datapilot-core（约 3.4 MB）
 ## 模块
 | 文件 | 内容 |
 |---|---|
-| `llm.rs` | OpenAI 兼容客户端：请求体（思考参数 5 种风格、reasoning 回放、hermes 文本工具调用）、SSE 流、`<think>` 拆分、工具调用累积与 JSON 修复、重试（流式请求 90 s 无数据视为卡住并重试）、代理 |
+| `llm.rs` | OpenAI 兼容客户端：请求体（思考参数 5 种风格、reasoning 回放、hermes 文本工具调用）、SSE 流、`<think>` 拆分、工具调用累积与 JSON 修复、重试（流式请求 300 s 无数据视为卡住并重试）、代理 |
 | `agent.rs` | 回合循环：`<context>` 注入替换、skill 显式调用、计划模式工具过滤、重复调用提示、并行批次（最多 10）、参数校验、权限门（本地模式 → 联网卡 → 模式/规则 → 审批卡）、输出截断、压缩 |
 | `permissions.rs` | 4 种模式 × 4 种风险、allow/ask/deny 规则（`domain:`、前缀、子串）、计划模式拦截卡 |
 | `kernel.rs` | sandbox-exec 启动内核、JSON lines、超时先取消后重启、按会话 `ns` 取消、数据库端口规则与按需重启 |

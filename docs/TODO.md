@@ -56,7 +56,7 @@
 - [x] 整合时顺带改名：update 可带 `rename`，文件名与内容不符时改名（如 `gmv-旧口径.md`→`gmv-口径.md`），已用真实模型实测，`/dream undo` 可恢复（2026-11-12）
 - [x] `/dream` 进界面：设置 coreEngine=rust 后 `/dream`、`/dream undo` 可用（Swift 核心下提示需要 Rust 核心）
 - [x] `/dream` 真实模型实测：3 条记忆 → 合并重复 GMV 条目、生成 2 行 core 块；`/dream undo` 恢复 3 条（2026-11-12）
-- [x] 模型流卡住：流式请求单独用 90 s 读空闲超时（`llm::STREAM_IDLE`），超时按网络错误重试；非流式（快速模型、整合）仍为 300 s（2026-11-12）
+- [x] 模型流卡住：流式请求单独用 300 s 读空闲超时（原 90 s；2026-11-19 因原生工具调用长参数静默 115 s 调大）（`llm::STREAM_IDLE`），超时按网络错误重试；非流式（快速模型、整合）仍为 300 s（2026-11-12）
 - [x] M2-1 Rust 协议补齐：kernel/*、session/rewind（+ 工作区快照）、session/btw、model/set、config/reload、llm/fast、qsql/feedback、project/close、title_changed 事件、空闲内核回收（2026-11-12）
 - [x] M2-2 Swift 客户端（CoreProcess / RemoteSession / RemoteKernel、AgentEvent wire 解码；ChatSessionAPI / KernelAPI 协议让界面同时支持两个核心；CoreClientTests 用真二进制 + 黄金模拟模型）（2026-11-12）
 - [x] M2-3 App 接入（2026-11-12）：隐藏开关 `settings.coreEngine`、`/dream`、保存设置后 `config/reload`、看板取数走 `dashboard/query`（只执行 spec 里的 SQL）、「始终允许」规则由 Rust 写回 config.json（App 改为重读，不覆盖）、浏览器页显示无头 Chrome 截图、全局记忆一次性导出到 `AppSupport/memory/` +「用户记忆」分区、build_app.sh 打包并签名 Rust 二进制和 protocol/
