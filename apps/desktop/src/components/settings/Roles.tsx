@@ -114,7 +114,7 @@ function RoleRow({ role, title, hint }: { role: string; title: string; hint: str
             try {
               const r = await core.request("provider/probe", { role });
               await useApp.getState().loadConfig();
-              setMsg("✅ " + [`${r.ms}ms`, r.native_tools ? L("原生工具调用 ✓", "native tools ✓") : L("未返回原生工具调用 → 已切换为 Hermes 模式", "no native tool call → Hermes mode"),
+              setMsg("✅ " + [`${r.ms}ms`, r.native_tools ? (r.tool_call_mode === "hermes" ? L("原生工具调用 ✓（保持 Hermes 模式：长参数也逐字返回，不会被网关超时断开）", "native tools ✓ (kept Hermes mode)") : L("原生工具调用 ✓", "native tools ✓")) : L("未返回原生工具调用 → 已切换为 Hermes 模式", "no native tool call → Hermes mode"),
                 r.reasoning ? L("返回推理内容 ✓", "reasoning ✓") : "", r.vision ? L("图片输入 ✓", "vision ✓") : L("不支持图片输入", "no vision"),
                 r.context_window ? L(`服务端报告上下文 ${r.context_window} tokens（已写入）`, `server context ${r.context_window} tokens (saved)`) : "",
                 r.usage ? `tokens ${r.usage.prompt}+${r.usage.completion}` : ""].filter(Boolean).join(" · "));

@@ -420,6 +420,7 @@ impl Agent {
         let mut rounds = 0;
         let mut sigs: HashMap<String, usize> = HashMap::new();
         let mut had_tools = false;
+        let mut cuts = 0;
         let reason = loop {
             if self.shared.cancelled() { break "cancelled"; }
             rounds += 1;
@@ -447,6 +448,26 @@ impl Agent {
                     emit(events::notice("上下文过长，强制压缩后重试 / context too long, compacting"));
                     if self.compact(emit, true) { continue; }
                     emit(events::error("压缩失败")); break "error";
+                }
+                // the connection dropped mid-answer: retry this step (≤ 2). A long silence with native tool calls means
+                // the server sends tool arguments only when complete (vLLM) and the gateway's idle timeout cut it:
+                // hermes tool calls stream the arguments as text, so switch (and remember) before retrying.
+                Err(LlmError::Cut { idle_secs, msg }) if cuts < 2 && !self.shared.cancelled() => {
+                    cuts += 1;
+                    let mut gone = ChatMessage::new(Role::Assistant, "");
+                    gone.reasoning = Some(String::new());
+                    emit(events::assistant_message(&gone));   // close the half-streamed bubble (UI drops an empty one)
+                    let mut caps = self.model.caps();
+                    if idle_secs >= 30 && caps.tool_call_mode != "hermes" && !specs.is_empty() {
+                        caps.tool_call_mode = "hermes".into();
+                        self.model.capabilities = Some(caps.clone());
+                        self.persist_main_caps(&caps);
+                        emit(events::notice(&format!("模型 {idle_secs} 秒没有输出，连接被网关断开（{msg}）。这个模型的原生工具调用要等参数全部生成完才返回，较长的参数会超过网关的空闲时限；已改用 Hermes 工具调用（参数随文字逐字返回）并记住，正在重试这一步 / switched to hermes tool calls, retrying", )));
+                    } else {
+                        emit(events::notice(&format!("输出过程中连接断开（{msg}），正在重试这一步 / stream interrupted, retrying")));
+                    }
+                    rounds -= 1;
+                    continue;
                 }
                 Err(e) => {
                     if self.shared.cancelled() { break "cancelled"; }
@@ -650,12 +671,18 @@ impl Agent {
         caps.context_source = "learned".into();
         caps.max_output_tokens = caps.max_output_tokens.min(n / 4);
         self.model.capabilities = Some(caps.clone());
+        self.persist_main_caps(&caps);
+        emit(events::notice(&format!("模型服务报告上下文上限为 {n} tokens，已按此调整并记住 / context window learned: {n}")));
+    }
+
+    /// Learned capabilities → config.json roles.main, when this session runs the main model (later sessions start with them).
+    fn persist_main_caps(&self, caps: &crate::types::Capabilities) {
         let cfg = self.shared.paths.app_support.join("config.json");
         let raw = crate::server::ui_rpc::read_raw(&cfg);
-        if raw["roles"]["main"]["model"].as_str() == Some(self.model.model.as_str()) {
-            let _ = crate::server::ui_rpc::patch_config(&cfg, &json!({"roles": {"main": {"capabilities": serde_json::to_value(&caps).unwrap()}}}));
+        let main = &raw["roles"]["main"];
+        if main["model"].as_str() == Some(self.model.model.as_str()) && main["providerId"].as_str() == Some(self.model.provider_id.as_str()) {
+            let _ = crate::server::ui_rpc::patch_config(&cfg, &json!({"roles": {"main": {"capabilities": serde_json::to_value(caps).unwrap()}}}));
         }
-        emit(events::notice(&format!("模型服务报告上下文上限为 {n} tokens，已按此调整并记住 / context window learned: {n}")));
     }
 
     pub fn compact(&mut self, emit: &Emit, force: bool) -> bool {

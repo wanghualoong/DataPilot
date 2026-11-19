@@ -532,13 +532,15 @@ impl Server {
         msg.images = Some(vec![ImagePart { data_url: format!("data:image/png;base64,{PROBE_PNG}") }]);
         let vision = c.stream(&vm, &[msg], &[], &never, &mut |_| {}).map(|r| { let l = r.content.to_lowercase(); l.contains("red") && l.contains("blue") }).unwrap_or(false);
         let mut base = serde_json::to_value(m.caps()).unwrap();
-        base["toolCallMode"] = json!(if native { "native" } else { "hermes" });
+        // hermes already chosen (e.g. learned after a gateway cut of long native tool arguments): keep it — it works everywhere
+        let keep_hermes = base["toolCallMode"] == "hermes";
+        base["toolCallMode"] = json!(if native && !keep_hermes { "native" } else { "hermes" });
         base["supportsVision"] = json!(vision);
         // context length reported by the server's /models (vLLM, LM Studio, OpenRouter…); New API gateways report none
         let reported = c.list_models_meta().ok().and_then(|l| l.into_iter().find(|x| x.0 == m.model).and_then(|x| x.1));
         if let Some(n) = reported { base["contextWindow"] = json!(n); base["contextSource"] = json!("server"); }
         patch_config(cfg_path, &json!({"roles": {role: {"capabilities": base}}}))?;
-        Ok(json!({"ms": ms, "native_tools": native, "reasoning": !res.reasoning.is_empty(), "vision": vision, "context_window": reported,
+        Ok(json!({"ms": ms, "native_tools": native, "tool_call_mode": base["toolCallMode"].clone(), "reasoning": !res.reasoning.is_empty(), "vision": vision, "context_window": reported,
                   "usage": res.usage.map(|u| json!({"prompt": u.prompt_tokens, "completion": u.completion_tokens})), "reload": self.reload()}))
     }
 }

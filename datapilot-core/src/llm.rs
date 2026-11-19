@@ -10,7 +10,9 @@ use std::time::Duration;
 use crate::types::{Capabilities, ChatMessage, ModelRef, Provider, Role, ToolCall, ToolSpec, Usage};
 
 #[derive(Debug)]
-pub enum LlmError { Http(u16, String), ContextTooLong(String), Bad(String), Net(String), Cancelled }
+/// `Cut`: the response started but the connection closed before the end (`idle_secs`: silence before the cut —
+/// a gateway idle timeout when it is long).
+pub enum LlmError { Http(u16, String), ContextTooLong(String), Bad(String), Net(String), Cancelled, Cut { idle_secs: u64, msg: String } }
 
 /// Context length a server states in an error body ("maximum context length is 32768 tokens", "max_model_len 32768"…).
 pub fn context_limit_from_error(body: &str) -> Option<usize> {
@@ -39,6 +41,7 @@ impl std::fmt::Display for LlmError {
             LlmError::Bad(s) => write!(f, "bad response: {s}"),
             LlmError::Net(s) => write!(f, "network error: {s}"),
             LlmError::Cancelled => write!(f, "cancelled"),
+            LlmError::Cut { idle_secs, msg } => write!(f, "输出过程中连接被断开（断开前 {idle_secs} 秒没有收到数据，可能是网关空闲超时）/ stream interrupted: {msg}"),
         }
     }
 }
@@ -198,23 +201,31 @@ impl Client {
         std::thread::spawn(move || {
             let resp = match me.with_retry(&f2, || me.post(&body)) { Ok(r) => r, Err(e) => { let _ = tx.send(Err(e)); return; } };
             for line in BufReader::new(resp.into_reader()).lines() {
-                let r = line.map_err(|e| LlmError::Net(e.to_string()));
+                let r = line.map_err(|e| LlmError::Cut { idle_secs: 0, msg: e.to_string() });
                 let stop = r.is_err();
                 if tx.send(r).is_err() || stop || f2.load(Ordering::SeqCst) { return; }
             }
         });
         let mut p = StreamProcessor::new(caps.tool_call_mode == "hermes");
+        let mut last = std::time::Instant::now();
+        let mut done = false;
         loop {
             if cancel.load(Ordering::SeqCst) { flag.store(true, Ordering::SeqCst); return Err(LlmError::Cancelled); }
             let line = match rx.recv_timeout(Duration::from_millis(100)) {
-                Ok(l) => l?,
+                Ok(Ok(l)) => { last = std::time::Instant::now(); l }
+                Ok(Err(LlmError::Cut { msg, .. })) => return Err(LlmError::Cut { idle_secs: last.elapsed().as_secs(), msg }),
+                Ok(Err(e)) => return Err(e),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
             let l = line.trim_end_matches('\r');
             let data = if let Some(d) = l.strip_prefix("data:") { d.trim_start() } else if l.starts_with('{') { l } else { continue };
-            if data == "[DONE]" { break; }
+            if data == "[DONE]" { done = true; break; }
             p.handle(data, on_delta)?;
+        }
+        // closed without [DONE] or a finish_reason: cut off (a partial answer must not pass as complete)
+        if !done && !p.finished() {
+            return Err(LlmError::Cut { idle_secs: last.elapsed().as_secs(), msg: "connection closed before the end of the response".into() });
         }
         Ok(p.result())
     }
@@ -246,7 +257,10 @@ impl Client {
     /// arrive in time. A 504 during a long prefill is retried — the server has usually cached the prefix by then.
     pub fn complete(&self, model: &ModelRef, messages: &[ChatMessage]) -> Result<Completion, LlmError> {
         let never = AtomicBool::new(false);
-        let mut r = self.stream(model, messages, &[], &never, &mut |_| {})?;
+        let mut r = match self.stream(model, messages, &[], &never, &mut |_| {}) {
+            Err(LlmError::Cut { .. }) => self.stream(model, messages, &[], &never, &mut |_| {})?,   // once more
+            r => r?,
+        };
         // always-thinking models (glm-5.x: thinking cannot be switched off) may spend the whole output budget on
         // reasoning and return no answer: retry once with room to finish thinking and answer
         if out_of_budget(&r) {
@@ -354,12 +368,27 @@ pub fn build_body(model: &str, caps: &Capabilities, messages: &[ChatMessage], to
 pub struct StreamProcessor {
     content: String, reasoning: String, partials: BTreeMap<usize, (String, String, String)>,
     finish: Option<String>, usage: Option<Usage>, hermes: bool, in_think: bool, saw_content: bool, pending: String,
+    /// hermes: bytes of `content` already shown, and whether a `<tool_call>` block started (not shown while streaming)
+    emitted: usize, tool_text: bool,
 }
 
 impl StreamProcessor {
     pub fn new(hermes: bool) -> Self {
         StreamProcessor { content: String::new(), reasoning: String::new(), partials: BTreeMap::new(), finish: None, usage: None,
-                          hermes, in_think: false, saw_content: false, pending: String::new() }
+                          hermes, in_think: false, saw_content: false, pending: String::new(), emitted: 0, tool_text: false }
+    }
+
+    /// A finish_reason arrived (the response ended normally).
+    pub fn finished(&self) -> bool { self.finish.is_some() }
+
+    /// hermes: stream the text before the first `<tool_call>`; the call JSON itself is parsed at the end, not shown.
+    fn emit_visible(&mut self, on: &mut dyn FnMut(Delta)) {
+        if self.tool_text { return; }
+        let end = match self.content.find("<tool_call>") {
+            Some(k) => { self.tool_text = true; k }
+            None => self.content.len() - partial_suffix(&self.content, "<tool_call>").unwrap_or(0),
+        };
+        if end > self.emitted { on(Delta::Content(self.content[self.emitted..end].to_string())); self.emitted = end; }
     }
 
     pub fn handle(&mut self, data: &str, on: &mut dyn FnMut(Delta)) -> Result<(), LlmError> {
@@ -417,7 +446,7 @@ impl StreamProcessor {
                 }
                 if !s.trim().is_empty() { self.saw_content = true; }
                 self.content += &s;
-                on(Delta::Content(s.clone()));
+                if self.hermes { self.emit_visible(on); } else { on(Delta::Content(s.clone())); }
                 s.clear();
             }
         }
@@ -490,6 +519,23 @@ pub fn hermes_parse(text: &str) -> (String, Vec<ToolCall>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hermes_hides_tool_text_while_streaming() {
+        let mut p = StreamProcessor::new(true);
+        let mut seen = String::new();
+        let mut on = |d: Delta| if let Delta::Content(s) = d { seen.push_str(&s) };
+        for c in ["好的，", "我来查<tool", "_call>\n{\"name\":\"x\",", "\"arguments\":{}}\n</tool_call>"] {
+            p.handle(&json!({"choices": [{"delta": {"content": c}}]}).to_string(), &mut on).unwrap();
+        }
+        assert!(!p.finished());
+        p.handle(r#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#, &mut on).unwrap();
+        assert!(p.finished());
+        let r = p.result();
+        assert_eq!(seen, "好的，我来查");
+        assert_eq!(r.content, "好的，我来查");
+        assert_eq!(r.tool_calls[0].name, "x");
+    }
+
     #[test]
     fn stream_think_and_tools() {
         let mut p = StreamProcessor::new(false);
