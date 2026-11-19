@@ -10,7 +10,8 @@ A desktop data-analysis agent for macOS and Windows (Tauri UI + Rust core), in t
 - Code runs in a sandbox (macOS Seatbelt; Windows AppContainer + Job Object) with a persistent per-session Python kernel.
 
 ## Build
-Requirements: Rust (stable), Node 20+.
+No prebuilt installers are published (see the license note below); build from source.
+Requirements: macOS 14+ (Apple Silicon) with Xcode command-line tools, Rust (stable), Node 20+. The Windows installer is cross-built on the Mac (cargo-xwin + NSIS).
 
 ```bash
 bash scripts/fetch_vendor.sh && bash scripts/build_venv.sh   # bundled Python 3.12 + packages
@@ -29,6 +30,6 @@ Design docs (Chinese) are in [`docs/`](docs/00-overview.md); the user guide is [
 macOS and Windows share one Tauri UI (`apps/desktop`) over the Rust core (`datapilot-core`); the Windows build is in testing ([checklist](docs/21-windows-test-checklist.md)). See [ADR-0012](docs/adr/0012-cross-platform-architecture.md) and the [dev guide](docs/18-cross-platform-dev-guide.md). Shared contracts live in [`protocol/`](protocol/README.md); behaviour is pinned by [golden samples](tests/golden/README.md).
 
 ## 致谢与许可 / Acknowledgements & license
-Developed and released under Apache-2.0, for internal learning and research only — not for commercial use — see [LICENSE](LICENSE). Third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and in the app's **About DataPilot** window. Parts adapted from Chat2DB Community v5.3.8 are subject to its license (`Resources/about/CHAT2DB_LICENSE`): no binary distribution to external parties.
+DataPilot is licensed under the [Apache License 2.0](LICENSE). Third-party components are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and in the app's **About DataPilot** window. Files marked “Adapted from Chat2DB” (Chat2DB Community v5.3.8) remain under the Chat2DB License (`Resources/about/CHAT2DB_LICENSE`): the source may be redistributed with that license, but installers / binaries that include those files may not be distributed to external parties without Chat2DB's written authorization. For that reason **this repository publishes source only, no prebuilt installers** — build your own as described above.
 
 Contact: wanghualoong@126.com

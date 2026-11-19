@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
-  "usage_zh": "DataPilot 以 Apache License 2.0 开发并发布，仅供内部学习和研究使用，不可作为商用。其中改编自 Chat2DB v5.3.8 的部分受 Chat2DB License 约束：不得以安装包形式分发给外部第三方或作为对外服务提供。",
-  "usage_en": "Developed and released under the Apache License 2.0, for internal learning and research only; commercial use is not permitted. Parts adapted from Chat2DB v5.3.8 are subject to the Chat2DB License: no binary distribution to external parties and no external service.",
+  "usage_zh": "DataPilot 以 Apache License 2.0 开源。其中标注「Adapted from Chat2DB」的文件（改编自 Chat2DB v5.3.8）仍受 Chat2DB License 约束：源码可随该许可再分发，但包含这些文件的安装包未经 Chat2DB 书面授权不得分发给外部第三方，也不得作为对外服务提供。",
+  "usage_en": "Open source under the Apache License 2.0. Files marked 'Adapted from Chat2DB' (Chat2DB v5.3.8) remain under the Chat2DB License: source may be redistributed with it, but binaries including them may not be distributed to external parties or offered as an external service without Chat2DB's written authorization.",
   "contact": "wanghualoong@126.com",
   "copyright": "© 2026 DataPilot",
   "code": [

@@ -1,7 +1,7 @@
 # DataPilot — 开发约定（给 Claude Code）
 
 ## 版本管理（必须遵守）
-- 仓库用 git 管理（只在本机，不推送到任何远程）。**每完成一项改动（代码、文档、配置）并通过相关测试后，立即提交一次**；一次提交只包含一件事，提交信息用一句话说明做了什么。
+- 仓库用 git 管理，远程为公开仓库 `https://github.com/wanghualoong/DataPilot`（2026-11-19 开源，Apache-2.0）。推送前确认不含密钥、config.json、用户数据；**不发布安装包**（含 Chat2DB 改编代码，二进制不得对外分发）。**每完成一项改动（代码、文档、配置）并通过相关测试后，立即提交一次**；一次提交只包含一件事，提交信息用一句话说明做了什么。
 - 改动前先 `git status` 确认工作区干净；出问题时用 `git diff` / `git checkout -- <文件>` / `git revert` 回退，不要靠手工恢复。
 - 不提交：`build/`、`target/`、`node_modules/`、`dist/`、`public/web/`、安装包、`.datapilot/`、任何密钥或 config.json。
 - **备份（与 git 配合）**：

@@ -11,7 +11,7 @@
 | Claude Code 公开文档 | 公开文档（本次代理访问不到，凭已有知识写的，未逐条核对） | CLAUDE.md 分层、MEMORY.md 索引、权限 allow/ask/deny、hooks、subagent |
 | vanna / SQLBot / WrenAI / GPT-Vis / DB-GPT | 开源 | Q-SQL 以对话轮次注入、intermediate_sql 查取值、M-Schema 分段提示词、只在最外层加 LIMIT、语义层、不带数据的图表 spec |
 | ChatDB、XiYan M-Schema 论文 | 论文 | 多步 SQL 推理链、schema 表示格式 |
-| OtterMind/Chat2DB v5.3.8 | LicenseRef-Chat2DB；部分代码改编（文件头标注），仅限 DKU 内部教育使用、不对外分发安装包 | 导出策略注册 + 单元格处理链、ER 图虚拟外键与布局保存、图表配置字段（ChartSchema）、AI 查库工具与自动执行策略、`@表名` 指定上下文、数据库连接字段 / 元数据查询 / 只读执行策略（`connectors.py`、`dbops.py`，纯 Python 驱动代替 JDBC）、我的查询 |
+| OtterMind/Chat2DB v5.3.8 | LicenseRef-Chat2DB；部分代码改编（文件头标注）。这些文件仍受 Chat2DB 许可约束：源码可随许可公开，包含它们的安装包不对外分发（因此 GitHub 只发布源码） | 导出策略注册 + 单元格处理链、ER 图虚拟外键与布局保存、图表配置字段（ChartSchema）、AI 查库工具与自动执行策略、`@表名` 指定上下文、数据库连接字段 / 元数据查询 / 只读执行策略（`connectors.py`、`dbops.py`，纯 Python 驱动代替 JDBC）、我的查询 |
 | claude-code-architecture-guide | 第三方中文机制分析（只用设计结论，不打开其指向的还原源码） | 记忆五分法、MEMORY.md 索引 + 主题文件、选择式召回、会话摘要参与压缩、Auto Dream 整合 |
 | openai/codex `codex-rs/memories`、`windows-sandbox-rs` | Apache-2.0，读过 README / 模板 / 模块结构 | 无用信息门槛、抹掉密钥、usage_count 保留策略、整合差异；Windows 受限令牌 + ACL + WFP |
 | microsoft/playwright-mcp | Apache-2.0 | 浏览器 snapshot + ref 交互方式 |

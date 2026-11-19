@@ -4,6 +4,8 @@
 回答整条可跨段落、列表、表格连续选中复制（表格复制为制表符分隔，可直接粘贴进 Excel）；回答下方的复制按钮复制 Markdown 原文。
 
 ## 安装
+> GitHub 仓库只发布源码，不提供现成安装包（原因见 README 的许可说明）。先按 README「Build」或 `docs/09-build-release.md` 自行打包：Mac 运行 `bash scripts/build_dmg.sh` 得到 `build/DataPilot-<版本>.dmg`；Windows 安装包在 Mac 上运行 `bash apps/desktop/scripts/build_win.sh` 交叉编译，Windows 上双击 `DataPilot_<版本>_x64-setup.exe` 安装（未签名，SmartScreen 提示时选“仍要运行”）。
+
 1. 打开 `DataPilot-<版本>.dmg`，把 DataPilot 拖到“应用程序”。
 2. 首次打开若提示无法验证开发者：系统设置 → 隐私与安全性 → “仍要打开”。（或终端执行 `xattr -dr com.apple.quarantine /Applications/DataPilot.app`）
 
