@@ -2,17 +2,22 @@
 //! Shares prompts (Resources/prompts), tool contracts (protocol/tools.snapshot.json), the Python kernel and the
 //! transcript / memory file formats with the Swift core.
 pub mod agent;
+pub mod backup;
 pub mod chrome;
 pub mod compact;
+pub mod defaults;
+pub mod docparse;
 pub mod dream;
 pub mod events;
 pub mod extract;
 pub mod index;
 pub mod kernel;
 pub mod llm;
+pub mod log;
 pub mod mcp;
 pub mod newapi;
 pub mod memory;
+pub mod model_sync;
 pub mod model_table;
 pub mod notes;
 pub mod paths;

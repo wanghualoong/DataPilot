@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Brain, ChevronDown, ChevronRight, Circle, CircleCheck, CircleDot, Eye, EyeOff, PanelLeft, PanelRight, Share, ShieldAlert, Shrink, Undo2, X,
-  LoaderCircle, TriangleAlert, Info, MessagesSquare, Copy,
+  LoaderCircle, TriangleAlert, Info, MessagesSquare,
 } from "lucide-react";
 import { ask, onFileDrop } from "../native";
 import { exportChat } from "../actions";
@@ -11,7 +11,7 @@ import { L } from "../i18n";
 import { Markdown } from "./Markdown";
 import { ToolCard } from "./ToolCard";
 import { ApprovalCard, PlanCard, QuestionCard } from "./Cards";
-import { IconBtn, MenuItem, Popover, ic } from "./ui";
+import { CopyBtn, IconBtn, MenuItem, Popover, ic } from "./ui";
 import { stripCitations } from "./links";
 import type { Item } from "../reduce";
 
@@ -34,7 +34,7 @@ function Row({ it, running, showContext }: { it: Item; running: boolean; showCon
             <IconBtn icon={Undo2} size={13} className="rewind" title={L("回到这条消息之前（对话和数据一起回退）", "Rewind to before this message")}
               onClick={async () => { if (await ask(L("回退到这条消息之前？之后的对话会被移除。", "Rewind to before this message? Later messages are removed."))) rewind(x.turn_id); }} />
           )}
-          <IconBtn icon={Copy} size={13} className="copy" title={L("复制", "Copy")} onClick={() => navigator.clipboard.writeText(x.text ?? "")} />
+          <CopyBtn className="copy" text={() => x.text ?? ""} />
           <div className="bubble">{x.text}</div>
         </div>
       );
@@ -51,7 +51,7 @@ function Row({ it, running, showContext }: { it: Item; running: boolean; showCon
             </div>
           )}
           {x.text && <Markdown text={stripCitations(x.text)} />}
-          {x.text && !x.streaming && <div className="mfoot"><IconBtn icon={Copy} size={13} className="copy" title={L("复制", "Copy")} onClick={() => navigator.clipboard.writeText(stripCitations(x.text))} /></div>}
+          {x.text && !x.streaming && <div className="mfoot"><CopyBtn className="copy" text={() => stripCitations(x.text)} /></div>}
         </div>
       );
     case "context":
@@ -98,7 +98,7 @@ function BtwCard({ x }: { x: any }) {
       {x.running ? <div className="muted small row"><LoaderCircle {...ic} size={13} className="spin" />{L("思考中…", "Thinking…")}</div>
         : x.is_error ? <div className="err small">{x.output}</div>
         : <><Markdown text={x.output ?? ""} />
-            <div><IconBtn icon={Copy} size={13} title={L("复制", "Copy")} onClick={() => navigator.clipboard.writeText(x.output ?? "")} /></div></>}
+            <div><CopyBtn text={() => x.output ?? ""} /></div></>}
     </div>
   );
 }
@@ -109,10 +109,21 @@ function EmptyHint() {
     <div className="emptyhint">
       <div className="row"><h2 className="grow">{L("开始分析", "Get started")}</h2>
         {!main && <button className="primary" onClick={() => useApp.setState({ quickLogin: true })}>{L("登录并选择 Key", "Log in & choose key")}</button>}</div>
-      <p className="muted">{L("把 Excel / CSV 拖进窗口，或点击回形针上传。然后直接提问，例如：", "Drag Excel/CSV files in, or click the paperclip. Then ask, e.g.:")}</p>
-      {[L("各大区本季度销售额和同比是多少？", "What are sales by region this quarter, and YoY?"),
-        L("找出复购率最高的客户群，并说明原因", "Which customer segment has the highest repeat rate, and why?"),
-        L("做一个销售看板，可以按地区和品类筛选", "Build a sales dashboard filterable by region and category")].map((t) => <div key={t} className="muted">• {t}</div>)}
+      <p className="muted">{L("用自然语言描述你想做的事，DataPilot 会自己写 SQL / Python、跑出结果并解释。", "Describe what you want in plain language; DataPilot writes the SQL / Python, runs it and explains the result.")}</p>
+      <h4>{L("可以给它的材料", "What you can give it")}</h4>
+      {[L("数据文件：Excel、CSV、Parquet、JSON — 拖进窗口或点回形针上传", "Data files: Excel, CSV, Parquet, JSON — drag in or click the paperclip"),
+        L("文档与图片：PDF、Word、PPT、扫描件和照片（自动识别文字，可「原页对照」核对）", "Documents & images: PDF, Word, PPT, scans and photos (text is recognized; check it with “Compare with page”)"),
+        L("数据库：在右侧「数据」面板添加连接（支持 SSH 隧道），直接查询库里的表", "Databases: add a connection in the Data panel on the right (SSH tunnel supported) and query tables directly"),
+        L("项目文件夹：在左侧打开一个文件夹作为项目，文件、对话、数据和记忆都留在项目里", "Project folders: open a folder on the left as a project; files, chats, data and memory stay with it")].map((t) => <div key={t} className="muted">• {t}</div>)}
+      <h4>{L("可以让它做的事（示例）", "What it can do (examples)")}</h4>
+      {[L("看下这份数据有哪些字段、有没有空值和异常值", "What columns does this data have? Any nulls or outliers?"),
+        L("按月统计各类别的指标，并算同比 / 环比", "Monthly metrics by category, with YoY / MoM"),
+        L("把这几个文件按编号关联起来，找出对不上的记录", "Join these files by ID and find records that don't match"),
+        L("画一张趋势图，再做一个可以筛选的看板", "Draw a trend chart, then build a filterable dashboard"),
+        L("从这些合同 / 发票里提取关键字段，整理成表格", "Extract key fields from these contracts / invoices into a table"),
+        L("把分析结论写成 Word 报告或 PPT，导出到 outputs", "Write the findings as a Word report or PPT into outputs")].map((t) => <div key={t} className="muted">• {t}</div>)}
+      <p className="muted small">{L("输入 / 查看命令和 skill（如 /plan 先出计划、/review 复核、/export 导出）；输入 @ 引用已导入的表；说「记住…」可保存偏好。",
+        "Type / for commands and skills (e.g. /plan, /review, /export); @ to mention imported tables; say “remember …” to save a preference.")}</p>
     </div>
   );
 }

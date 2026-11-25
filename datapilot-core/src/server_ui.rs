@@ -13,16 +13,18 @@ use crate::types::{ChatMessage, ImagePart, ModelRef, ToolSpec};
 /// Methods that block (network, process shutdown, file moves): answered from a worker thread.
 pub const ASYNC: &[&str] = &["config/set", "secret/set", "provider/models", "provider/probe", "net/test", "chrome/install",
     "newapi/status", "newapi/login", "newapi/tokens", "newapi/use", "newapi/create", "newapi/logout",
-    "project/delete_data", "project/remove", "session/delete", "session/export", "session/fork", "app/doctor"];
+    "project/delete_data", "project/remove", "session/delete", "session/export", "session/fork", "app/doctor", "models/sync_local", "docparse/test", "docparse/page", "docparse/export", "app/diagnostics",
+    "backup/export", "backup/preview", "backup/import"];
 
 pub const METHODS: &[&str] = &["session/list", "session/create", "session/rename", "session/pin", "session/archive", "session/delete",
     "session/touch", "session/search", "session/history", "session/export",
     "project/list", "project/open", "project/relink", "project/remove", "project/delete_data",
     "config/get", "config/set", "secret/set", "secret/has", "provider/models", "provider/probe", "net/test",
     "chrome/status", "chrome/install", "newapi/status", "newapi/login", "newapi/tokens", "newapi/use", "newapi/create", "newapi/logout",
-    "memory/topics", "dashboard/list", "dashboard/get", "dashboard/save", "dashboard/patch", "dashboard/pin", "dashboard/delete",
-    "skill/list", "skill/get", "skill/save", "skill/delete", "files/list", "files/import", "files/save", "files/image", "computer/permissions", "computer/request", "app/about",
-    "session/fork", "app/doctor", "model/preset"];
+    "memory/topics", "memory/instructions", "dashboard/list", "dashboard/get", "dashboard/save", "dashboard/patch", "dashboard/pin", "dashboard/delete",
+    "skill/list", "skill/get", "skill/save", "skill/delete", "files/list", "files/import", "files/save", "files/image", "computer/permissions", "computer/request", "app/about", "app/defaults",
+    "session/fork", "app/doctor", "model/preset", "models/sync_local", "docparse/test", "docparse/page", "docparse/export", "app/diagnostics",
+    "backup/list", "backup/export", "backup/preview", "backup/import"];
 
 /// 64×32 PNG, left half red, right half blue (vision probe).
 const PROBE_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAN0lEQVR42u3PsQkAAAzDsPz/dHpDh2wCzwalybTxvgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+HY6S/hqZZnSdgAAAABJRU5ErkJggg==";
@@ -79,7 +81,7 @@ fn safe_id(id: &str) -> Result<&str, String> {
 pub struct SessionLoc { pub id: String, pub workspace: PathBuf, pub project_root: Option<PathBuf>, pub transcript: PathBuf }
 
 impl Server {
-    fn notify(&self, method: &str, params: Value) { send(&self.out, &json!({"jsonrpc": "2.0", "method": method, "params": params})); }
+    pub(super) fn notify(&self, method: &str, params: Value) { send(&self.out, &json!({"jsonrpc": "2.0", "method": method, "params": params})); }
 
     /// Where a session lives: from the open session, else from the UI index.
     fn loc(&self, p: &Value) -> Result<SessionLoc, String> {
@@ -89,6 +91,19 @@ impl Server {
         }
         let ui = &self.core.ui;
         Ok(SessionLoc { workspace: ui.workspace(&id), project_root: ui.session_project(&id).map(|x| x.1), transcript: ui.transcript(&id), id })
+    }
+
+    /// Before a backup / restore: no turn may be running; kernels are stopped (DuckDB files closed, restarted lazily).
+    /// `close`: also close every open chat (a restore rewrites their files; the UI reopens them).
+    fn quiesce(&self, close: bool) -> Result<(), String> {
+        let busy = self.sessions.lock().unwrap().values().any(|e| e.agent.try_lock().is_err());
+        if busy { return Err("有任务正在运行，请等它完成（或停止）后再备份 / 恢复 / A task is running: wait for it or stop it first".into()); }
+        if close {
+            let ids: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
+            for id in ids { self.close_session(&id); }
+        }
+        self.core.close_all_kernels();
+        Ok(())
     }
 
     fn reload(self: &Arc<Self>) -> Value { self.handle("config/reload", &json!({})).unwrap_or_else(|e| json!({"error": e})) }
@@ -205,6 +220,25 @@ impl Server {
                 self.core.secrets.set(kind, id, p["value"].as_str())?;
                 let reload = (kind == "api_key").then(|| self.reload());
                 Ok(json!({"stored": p["value"].as_str().map(|v| !v.trim().is_empty()).unwrap_or(false), "reload": reload}))
+            }
+            // user-level DATAPILOT.md (always loaded, all projects): the user's own standing instructions
+            "memory/instructions" => {
+                let f = self.core.paths.app_support.join("DATAPILOT.md");
+                match p["action"].as_str().unwrap_or("get") {
+                    "get" => Ok(json!({"path": f, "text": std::fs::read_to_string(&f).unwrap_or_default()})),
+                    "set" => {
+                        let t = p["text"].as_str().unwrap_or("");
+                        if t.chars().count() > 20_000 { return Err("内容太长（上限 2 万字）/ too long".into()); }
+                        if t.trim().is_empty() { let _ = std::fs::remove_file(&f); }
+                        else {
+                            let tmp = f.with_extension("md.tmp");
+                            std::fs::write(&tmp, crate::memory::redact(t)).map_err(|e| e.to_string())?;
+                            std::fs::rename(&tmp, &f).map_err(|e| e.to_string())?;
+                        }
+                        Ok(json!({"path": f}))
+                    }
+                    a => Err(format!("unknown action {a}")),
+                }
             }
             "secret/has" => {
                 let (kind, id) = (s(p, "kind")?, s(p, "id")?);
@@ -389,12 +423,20 @@ impl Server {
             // ---------- Computer Use permissions ----------
             "computer/permissions" | "computer/request" => computer_rpc(method, p),
             // About page: credits.json and the bundled license files (repo root in dev builds)
+            // built-in defaults of this distribution (defaults.json + optional defaults.local.json)
+            "app/defaults" => Ok(crate::defaults::to_json(crate::defaults::get())),
             "app/about" => {
                 let r = &self.core.paths.resources;
                 let credits = std::fs::read_to_string(r.join("about/credits.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).unwrap_or(Value::Null);
+                // 更新日志 / changelog (newest first)
+                let changelog = std::fs::read_to_string(r.join("about/changelog.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
+                    .map(|v| v["releases"].clone()).unwrap_or(json!([]));
                 let doc = |n: &str| [Some(r.join("about").join(n)), r.parent().map(|p| p.join(n))].into_iter().flatten().find(|p| p.is_file());
-                Ok(json!({"version": crate::VERSION, "credits": credits,
-                          "docs": {"license": doc("LICENSE"), "notices": doc("THIRD_PARTY_NOTICES.md"), "chat2db": doc("CHAT2DB_LICENSE")}}))
+                // texts too: the About page shows them in-app (the system default app for .md may be an IDE that opens slowly / in the background)
+                let text = |n: &str| doc(n).and_then(|p| std::fs::read_to_string(p).ok());
+                Ok(json!({"version": crate::VERSION, "credits": credits, "changelog": changelog,
+                          "docs": {"license": doc("LICENSE"), "notices": doc("THIRD_PARTY_NOTICES.md")},
+                          "doc_text": {"license": text("LICENSE"), "notices": text("THIRD_PARTY_NOTICES.md")}}))
             }
             // `/fork`: copy of a chat (transcript, notes; own workspace for non-project chats) to try another direction
             "session/fork" => {
@@ -410,12 +452,111 @@ impl Server {
                 Ok(v)
             }
             "app/doctor" => Ok(self.doctor(p)),
+            // ---------- backup / restore (backup.rs) ----------
+            "backup/list" => Ok(json!({"backups": crate::backup::list(&app_support), "dir": crate::backup::dir(&app_support),
+                                       "default_name": crate::backup::default_name(), "auto": self.settings().auto_backup})),
+            "backup/export" => {
+                let dst = PathBuf::from(s(p, "path")?);
+                let sel: Vec<crate::backup::ProjectSel> = p["projects"].as_array().into_iter().flatten()
+                    .filter_map(|x| x["id"].as_str().map(|id| crate::backup::ProjectSel { id: id.into(), files: x["files"].as_bool().unwrap_or(false) })).collect();
+                self.quiesce(false)?;
+                crate::backup::export(&self.core, &dst, &sel, "manual")
+            }
+            "backup/preview" => crate::backup::preview(&self.core, Path::new(s(p, "path")?)),
+            "backup/import" => {
+                let mode = p["mode"].as_str().unwrap_or("merge");
+                if mode != "merge" && mode != "replace" { return Err(format!("unknown mode {mode}")); }
+                let relink: std::collections::HashMap<String, PathBuf> = p["relink"].as_object().into_iter().flatten()
+                    .filter_map(|(k, v)| v.as_str().map(|x| (k.clone(), PathBuf::from(x)))).collect();
+                self.quiesce(true)?;
+                let r = crate::backup::import(&self.core, Path::new(s(p, "path")?), mode, &relink, p["projects_only"].as_bool().unwrap_or(false))?;
+                let _ = self.reload();
+                Ok(r)
+            }
+            // 诊断包: logs + core.log + version / system info (no chats, data or secrets) as a zip at `path`
+            "app/diagnostics" => {
+                let dst = std::path::PathBuf::from(s(p, "path")?);
+                let doctor = self.doctor(&json!({}));
+                crate::log::diagnostics_zip(&self.core.paths.app_support, &dst, &doctor)?;
+                Ok(json!({"path": dst}))
+            }
+            // document parsing (OCR) service: health + tiers of the configured server (or `server` from the form)
+            "docparse/test" => {
+                let mut st = self.settings();
+                if let Some(sv) = p["server"].as_str().filter(|x| !x.trim().is_empty()) { st.doc_parse.server = sv.to_string(); }
+                st.doc_parse.enabled = true;
+                let c = crate::docparse::cfg(&st, self.core.secrets.as_ref()).ok_or("disabled")?;
+                if c.server.is_empty() { return Err("还没有填写文档识别服务器地址".into()); }
+                let t = Instant::now();
+                let mut h = crate::docparse::health(&c, &st)?;
+                h["ms"] = json!(t.elapsed().as_millis() as u64);
+                h["server"] = json!(c.server);
+                h["private"] = json!(crate::docparse::is_private(&c.server));
+                Ok(h)
+            }
+            // original-page view → download: recognized text of all pages (review items included) as docx / md
+            "docparse/export" => {
+                let sh = self.shared(p)?;
+                let path = crate::tools::agent::resolve_in(s(p, "path")?, &sh.project_root.iter().cloned().chain([sh.workspace.clone()]).collect::<Vec<_>>())?;
+                let cancel = AtomicBool::new(false);
+                let noop = |_: &str| {};
+                let env = crate::docparse::Env { kernel: &sh.kernel, settings: &sh.settings, secrets: sh.secrets.as_ref(), app_support: &self.core.paths.app_support, cancel: &cancel, progress: &noop };
+                let ocr = crate::docparse::ocr_for(&env, &path, None)?;
+                if let Some(u) = ocr.as_ref().and_then(|o| o["unavailable"].as_str()) { return Err(u.to_string()); }
+                let mut kp = json!({"path": path.display().to_string(), "format": p["format"].as_str().unwrap_or("docx")});
+                if let Some(o) = ocr { kp["ocr"] = o; }
+                Ok(sh.kernel.call("ocr_export", kp, 300)?.result)
+            }
+            // original-page view: page image + merged OCR text + review items of one page of a scanned PDF / image
+            "docparse/page" => {
+                let sh = self.shared(p)?;
+                let path = crate::tools::agent::resolve_in(s(p, "path")?, &sh.project_root.iter().cloned().chain([sh.workspace.clone()]).collect::<Vec<_>>())?;
+                let page = p["page"].as_u64().unwrap_or(1).max(1);
+                let cancel = AtomicBool::new(false);
+                let noop = |_: &str| {};
+                let env = crate::docparse::Env { kernel: &sh.kernel, settings: &sh.settings, secrets: sh.secrets.as_ref(), app_support: &self.core.paths.app_support, cancel: &cancel, progress: &noop };
+                let ocr = crate::docparse::ocr_for(&env, &path, None)?;
+                let r = sh.kernel.call("ocr_render", json!({"path": path.display().to_string(), "page": page}), 120)?.result;
+                let img = PathBuf::from(r["path"].as_str().unwrap_or(""));
+                let mime = match img.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase()).as_deref() {
+                    Some("jpg") | Some("jpeg") => "image/jpeg", Some("webp") => "image/webp", Some("gif") => "image/gif", Some("bmp") => "image/bmp", Some("tif") | Some("tiff") => "image/tiff", _ => "image/png",
+                };
+                let b = std::fs::read(&img).map_err(|e| e.to_string())?;
+                if b.len() > 40 << 20 { return Err("图片太大 / image too large".into()); }
+                use base64::Engine as _;
+                let mut out = json!({"total": r["total"], "page": page, "image": format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(b)),
+                                     "scanned": false, "text": null, "review": [], "info": null});
+                if let Some(o) = &ocr {
+                    out["info"] = json!(crate::docparse::describe(o));
+                    out["pages"] = o["pages"].clone();
+                    if o["pages"].as_array().map(|a| a.iter().any(|v| v.as_u64() == Some(page))).unwrap_or(false) {
+                        out["scanned"] = json!(true);
+                        let mut one = o.clone();
+                        one["pages"] = json!([page]);
+                        let m = sh.kernel.call("ocr_merge", json!({"ocr": one}), 120)?.result;
+                        out["text"] = m["pages"][0]["text"].clone();
+                        out["review"] = m["pages"][0]["review"].clone();
+                    }
+                }
+                Ok(out)
+            }
             // resolved capabilities of a model (saved ones, else built-in table / preset) and the plain preset
             "model/preset" => {
                 let model = p["model"].as_str().ok_or("missing model")?.to_string();
                 let saved = p.get("capabilities").filter(|v| v.is_object()).map(|v| serde_json::from_value(v.clone())).transpose().map_err(|e| format!("bad capabilities: {e}"))?;
                 let m = ModelRef { provider_id: String::new(), model: model.clone(), capabilities: saved };
                 Ok(json!({"capabilities": m.caps(), "preset": crate::types::Capabilities::preset(&model), "table_size": crate::model_table::len()}))
+            }
+            // "*local" models of the sync gateways (settings.localModelSyncHosts, else the built-in defaults): weekly in the background, or
+            // now (`force`); `dry` only says whether it applies (plus the host list in effect and the default)
+            "models/sync_local" => {
+                let only = p["provider_id"].as_str();
+                if p["dry"].as_bool().unwrap_or(false) {
+                    let hosts = crate::model_sync::hosts(&read_raw(&cfg_path));
+                    let ok = self.core.config.lock().unwrap().providers.iter().any(|x| only.map(|o| o == x.id).unwrap_or(true) && crate::model_sync::is_target(&x.base_url, &hosts));
+                    return Ok(json!({"eligible": ok, "hosts": hosts, "default_hosts": crate::model_sync::default_hosts()}));
+                }
+                Ok(self.sync_local_models(only, p["force"].as_bool().unwrap_or(false)))
             }
             m => Err(format!("method not found: {m}")),
         }
@@ -434,7 +575,11 @@ impl Server {
             c.args(["-I", "-c", "import sys, duckdb, pandas, pyarrow, openpyxl; print(sys.version.split()[0], duckdb.__version__, pandas.__version__)"]);
             #[cfg(windows)] { use std::os::windows::process::CommandExt; c.creation_flags(0x0800_0000); }
             match c.output() {
-                Ok(o) if o.status.success() => add("python", Some(true), format!("Python {}", String::from_utf8_lossy(&o.stdout).trim().replacen(' ', " · duckdb ", 1).replacen(' ', " · pandas ", 2))),
+                Ok(o) if o.status.success() => {
+                    let out = String::from_utf8_lossy(&o.stdout).to_string();
+                    let v: Vec<&str> = out.split_whitespace().collect();
+                    add("python", Some(true), format!("Python {} · duckdb {} · pandas {}", v.first().unwrap_or(&"?"), v.get(1).unwrap_or(&"?"), v.get(2).unwrap_or(&"?")))
+                }
                 Ok(o) => add("python", Some(false), crate::text::prefix(String::from_utf8_lossy(&o.stderr).trim(), 300)),
                 Err(e) => add("python", Some(false), e.to_string()),
             }
@@ -442,10 +587,13 @@ impl Server {
         // session kernel (only when a session is given and open)
         if let Ok(sh) = self.shared(p) {
             let k = &sh.kernel.process;
-            if k.is_running() {
-                let t0 = Instant::now();
-                match sh.kernel.call("ping", json!({}), 10) { Ok(_) => add("kernel", Some(true), format!("运行中，响应 {} ms", t0.elapsed().as_millis())), Err(e) => add("kernel", Some(false), e) }
-            } else { add("kernel", None, "未启动（发消息时自动启动）".into()); }
+            // not running: really start it in the sandbox now (a failure here is the real cause users need to see)
+            let was = k.is_running();
+            let t0 = Instant::now();
+            match sh.kernel.call("ping", json!({}), 120) {
+                Ok(_) => add("kernel", Some(true), format!("{}，响应 {} ms", if was { "运行中" } else { "已在沙箱中试启动成功" }, t0.elapsed().as_millis())),
+                Err(e) => add("kernel", Some(false), format!("{}：{}", if was { "运行中但无响应" } else { "在沙箱中启动失败" }, crate::text::prefix(&e, 1500))),
+            }
         }
         // main model: configured, key, reachable
         let cfg = self.core.config.lock().unwrap().clone();
@@ -502,6 +650,14 @@ impl Server {
             add("mcp", if bad.is_empty() { Some(true) } else { None }, if bad.is_empty() { format!("{} 个服务器正常", ms.len()) } else { bad.join("；") });
         }
         add("core", Some(true), format!("datapilot-core {} · {} · {}", crate::VERSION, std::env::consts::OS, std::env::consts::ARCH));
+        // 最近 10 次慢或失败的任务 (diagnostic log)
+        let recent = crate::log::recent_problems(&paths.app_support, 10);
+        let logs = crate::log::dir(&paths.app_support);
+        add("recent", if recent.is_empty() { Some(true) } else { None }, if recent.is_empty() {
+            format!("最近没有慢或失败的任务（日志：{}）", logs.display())
+        } else {
+            format!("最近 {} 条（日志：{}）\n```\n{}\n```", recent.len(), logs.display(), recent.join("\n"))
+        });
         json!({"items": items})
     }
 
@@ -545,6 +701,68 @@ impl Server {
     }
 }
 
+static SYNC_LOCK: Mutex<()> = Mutex::new(());
+
+impl Server {
+    /// Sync the "*local" models of providers on the sync gateways (model_sync.rs): only providers due (≥ 7 days since the last
+    /// successful check) unless `force`. A failed or empty listing changes nothing but the check state.
+    pub(super) fn sync_local_models(self: &Arc<Self>, only: Option<&str>, force: bool) -> Value {
+        use crate::model_sync as ms;
+        let _g = SYNC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let cfg_path = self.core.paths.app_support.join("config.json");
+        let hosts = ms::hosts(&read_raw(&cfg_path));
+        let provs: Vec<crate::types::Provider> = self.core.config.lock().unwrap().providers.iter()
+            .filter(|x| ms::is_target(&x.base_url, &hosts) && only.map(|o| o == x.id).unwrap_or(true)).cloned().collect();
+        let mut out = vec![];
+        for prov in provs {
+            let now = crate::text::now();
+            if !force && !ms::due(&read_raw(&cfg_path), &prov.id, now) { out.push(json!({"provider": prov.id, "skipped": true})); continue; }
+            let name = if prov.name.trim().is_empty() { prov.id.clone() } else { prov.name.clone() };
+            let listed = self.core.client_for_provider(prov.clone(), self.core.secrets.api_key(&prov.id))
+                .and_then(|c| c.list_models_meta().map_err(|e| e.to_string()))
+                .and_then(|l| if l.is_empty() { Err("网关返回的模型列表为空 / empty model list".to_string()) } else { Ok(l) });
+            let remote: Vec<String> = match listed {
+                Ok(l) => l.into_iter().map(|x| x.0).collect(),
+                Err(e) => {
+                    let _ = patch_config(&cfg_path, &json!({"localModelSync": {(prov.id.clone()): {"lastTry": now, "ok": false, "error": e}}}));
+                    out.push(json!({"provider": prov.id, "ok": false, "error": e}));
+                    continue;
+                }
+            };
+            let plan = ms::plan(&read_raw(&cfg_path), &prov.id, &remote, now);
+            if let Err(e) = patch_config(&cfg_path, &plan.patch) { out.push(json!({"provider": prov.id, "ok": false, "error": e})); continue; }
+            let mut probed = vec![];
+            if plan.changed() {
+                let r = self.reload();
+                if !plan.switched.is_empty() { self.retarget_busy(&r, &prov.id, &plan.removed); }
+                // a role switched to another model: measure its tool-call mode / vision like 设置 → 能力测试
+                for (role, _, _) in plan.switched.iter().filter(|x| x.0 != "vision") {
+                    probed.push(json!({"role": role, "result": self.probe(role, &cfg_path).unwrap_or_else(|e| json!({"error": e}))}));
+                }
+                self.notify("core/notice", json!({"topic": "models", "text": plan.message(&name)}));
+            }
+            out.push(json!({"provider": prov.id, "ok": true, "added": plan.added, "removed": plan.removed,
+                            "switched": plan.switched.iter().map(|(r, f, t)| json!({"role": r, "from": f, "to": t})).collect::<Vec<_>>(),
+                            "stranded": plan.stranded, "probed": probed}));
+        }
+        json!({"results": out})
+    }
+
+    /// Sessions mid-turn on a removed model take the new main model once their turn ends.
+    fn retarget_busy(self: &Arc<Self>, reload: &Value, pid: &str, removed: &[String]) {
+        for id in reload["busy"].as_array().into_iter().flatten().filter_map(|v| v.as_str()) {
+            let Some(agent) = self.sessions.lock().unwrap().get(id).map(|e| e.agent.clone()) else { continue };
+            let (me, pid, removed) = (self.clone(), pid.to_string(), removed.to_vec());
+            std::thread::spawn(move || {
+                let mut g = agent.lock().unwrap_or_else(|e| e.into_inner());
+                if g.model.provider_id != pid || !removed.contains(&g.model.model) { return; }
+                let Some(m) = me.core.config.lock().unwrap().roles.main.clone().filter(|m| !removed.contains(&m.model)) else { return };
+                if let Ok(c) = me.core.client_for(&m) { g.set_model(m, c); }
+            });
+        }
+    }
+}
+
 /// Computer Use permissions (macOS AX / screen recording); other platforms report `supported: false`.
 #[cfg(target_os = "macos")]
 fn computer_rpc(method: &str, p: &Value) -> Result<Value, String> {
@@ -567,6 +785,18 @@ fn computer_rpc(method: &str, _p: &Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Every version bump adds a changelog entry: the newest one must be the core's version.
+    #[test]
+    fn changelog_matches_version() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(root.join("Resources/about/changelog.json")).unwrap()).unwrap();
+        let first = &v["releases"][0];
+        assert_eq!(first["version"].as_str(), Some(crate::VERSION), "add a Resources/about/changelog.json entry for this version");
+        for r in v["releases"].as_array().unwrap() {
+            assert!(r["date"].is_string() && r["summary_zh"].is_string() && r["summary_en"].is_string());
+        }
+    }
+
     #[test]
     fn merge_patch_local() {
         let mut v = json!({"providers": [{"id": "a", "baseURL": "x"}], "settings": {"proxyMode": "system", "keep": 1}, "unknown": {"x": 1}});

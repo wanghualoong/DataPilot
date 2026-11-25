@@ -24,10 +24,13 @@ fn main() {
     datapilot_core::platform::contain_children();
     let support = std::env::var("DP_APP_SUPPORT").map(PathBuf::from)
         .unwrap_or_else(|_| datapilot_core::platform::app_support_dir());
+    datapilot_core::log::init(&support);
+    datapilot_core::log::info("core_start", "", &[("version", env!("CARGO_PKG_VERSION").into()), ("os", std::env::consts::OS.into())]);
     let paths = match (std::env::var("DP_RESOURCES"), std::env::var("DP_PYTHON_ROOT")) {
         (Ok(r), Ok(p)) => Paths::new(PathBuf::from(r), PathBuf::from(p), support.clone()),
         _ => Paths::dev(support.clone()),
     };
+    datapilot_core::defaults::init(&paths.resources);
     let config: Config = std::fs::read_to_string(support.join("config.json")).ok()
         .and_then(|t| serde_json::from_str(&t).map_err(|e| eprintln!("config.json: {e}")).ok()).unwrap_or_default();
     let secrets: Arc<dyn SecretStore> = match std::env::var("DP_API_KEY") {

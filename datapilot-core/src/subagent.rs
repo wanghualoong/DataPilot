@@ -217,7 +217,7 @@ impl Agent {
                 emit(events::tool_progress(call_id, &format!("[{}] 第 {n} 轮 · {} {}", ty.name, c.name, text::prefix(&c.arguments, 100))));
                 let inner = format!("{call_id}_{}", c.id);
                 let out = match (tools.iter().find(|t| t.name() == c.name), c.parsed()) {
-                    (Some(t), Some(args)) => match validate(&args, &t.contract.parameters) {
+                    (Some(t), Some(mut args)) => match { crate::tools::coerce(&mut args, &t.contract.parameters); validate(&args, &t.contract.parameters) } {
                         Some(e) => format!("Error: {e}"),
                         None => match self.authorize(t, &args, &inner, &t.summary(&args), emit, Some(&origin)) {
                             Gate::Denied(msg, _) => msg,

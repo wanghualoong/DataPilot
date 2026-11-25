@@ -135,6 +135,26 @@ impl Registry {
     pub fn names(&self) -> Vec<String> { self.tools.iter().map(|t| t.contract.name.clone()).collect() }
 }
 
+/// Lenient argument types (small models send `"preview": "True"`, `"limit": "10"`, arrays as JSON text): values whose
+/// schema type is boolean / number / integer / array / object and that arrive as an unambiguous string are converted
+/// before `validate`, instead of failing the call.
+pub fn coerce(args: &mut Value, schema: &Value) {
+    let (Some(obj), Some(props)) = (args.as_object_mut(), schema["properties"].as_object()) else { return };
+    for (k, v) in obj.iter_mut() {
+        let (Some(t), Some(s)) = (props.get(k).and_then(|p| p["type"].as_str()), v.as_str()) else { continue };
+        let s = s.trim();
+        let new = match t {
+            "boolean" => match s.to_lowercase().as_str() { "true" | "1" | "yes" => Some(Value::Bool(true)), "false" | "0" | "no" => Some(Value::Bool(false)), _ => None },
+            "integer" => s.parse::<i64>().ok().map(Value::from),
+            "number" => s.parse::<f64>().ok().filter(|f| f.is_finite()).map(Value::from),
+            "array" if s.starts_with('[') => serde_json::from_str::<Value>(s).ok().filter(|x| x.is_array()),
+            "object" if s.starts_with('{') => serde_json::from_str::<Value>(s).ok().filter(|x| x.is_object()),
+            _ => None,
+        };
+        if let Some(n) = new { *v = n; }
+    }
+}
+
 /// Minimal JSON-schema validation (required keys, primitive types, enums) — same rules as the Swift validator.
 pub fn validate(args: &Value, schema: &Value) -> Option<String> {
     let Some(obj) = args.as_object() else { return Some("arguments must be a JSON object".into()) };

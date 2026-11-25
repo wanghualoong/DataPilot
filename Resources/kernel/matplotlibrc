@@ -1,0 +1,6 @@
+# DataPilot kernel: headless backend + CJK-capable fonts (first one installed wins; macOS / Windows / Linux)
+backend: Agg
+font.family: sans-serif
+font.sans-serif: Hiragino Sans GB, PingFang SC, STHeiti, Heiti SC, Microsoft YaHei, SimHei, DengXian, Noto Sans CJK SC, Source Han Sans SC, WenQuanYi Micro Hei, Arial Unicode MS, DejaVu Sans
+axes.unicode_minus: False
+savefig.dpi: 120

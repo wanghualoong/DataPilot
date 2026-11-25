@@ -16,3 +16,5 @@
 .card.approval.net { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: color-mix(in srgb, var(--accent) 6%, var(--card)); }
 .card.approval .risk { color: var(--muted); font-size: 12px; }
 .card.approval .row .sp { flex: 1; }
+/* copy button: check mark + "已复制" for a moment; stays visible while it shows */
+.copybtn { gap: 3px; } .copybtn.done { color: #2e9d48; visibility: visible !important; } .copybtn .copied { font-size: 11px; }

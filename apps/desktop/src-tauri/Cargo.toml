@@ -1,6 +1,6 @@
 [package]
 name = "datapilot-desktop"
-version = "0.1.0"
+version = "0.1.11"
 edition = "2021"
 license = "Apache-2.0"
 description = "DataPilot desktop shell (Tauri 2): runs datapilot-core and relays JSON-RPC to the React UI"
@@ -14,6 +14,12 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tauri-plugin-notification = "2"
+
+# Windows folder picker that still lists files (folder_picker.rs); same version Tauri already uses
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_SystemServices", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"] }
+windows-core = "0.62"   # #[implement] expands to ::windows_core paths
 
 [profile.release]
 opt-level = 3

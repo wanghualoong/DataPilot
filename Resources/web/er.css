@@ -22,7 +22,7 @@ html,body{height:100%}
 .er-kv{display:flex;gap:8px;font-size:12px;align-items:baseline}
 .er-k{color:var(--muted);min-width:64px}
 .er-v{word-break:break-all}
-code.er-v{font:11px ui-monospace,Menlo,Consolas,monospace;background:var(--hover);padding:2px 4px;border-radius:4px}
+code.er-v{font:11px ui-monospace,"SF Mono",Menlo,"Cascadia Mono",Consolas,"PingFang SC","Microsoft YaHei",monospace;background:var(--hover);padding:2px 4px;border-radius:4px}
 .er-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
 .er-side{border:1px solid var(--border);border-radius:8px;padding:6px 8px;margin:0;display:flex;flex-direction:column;gap:6px}
 .er-side legend{color:var(--ink2);font-size:12px;padding:0 4px}

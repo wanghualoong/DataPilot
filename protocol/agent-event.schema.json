@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://datapilot.dku/protocol/agent-event.schema.json",
+ "$id": "https://github.com/wanghualoong/DataPilot/protocol/agent-event.schema.json",
  "title": "AgentEvent",
  "description": "Core → UI event stream (JSON-RPC notification `agent/event` params). Discriminated by `type`. Adding optional fields is compatible; renaming/removing is a breaking change (bump protocol version).",
  "oneOf": [

@@ -129,6 +129,17 @@ pub fn instruction_block(app_support: &Path, project_root: Option<&Path>) -> Opt
     Some(format!("# 项目说明与规则 / Instructions (DATAPILOT)\n以下是用户为你写的长期指令，优先于默认做法（用户本次的明确要求除外）。\n\n{body}"))
 }
 
+/// Always-loaded user layer ("about you"): the user-memory index (incl. the core block kept by consolidation), capped
+/// at USER_INDEX_MAX chars. None when there is no user memory yet.
+pub const USER_INDEX_MAX: usize = 2000;
+pub fn user_memory_block(paths: &Paths) -> Option<String> {
+    let idx = crate::memory::load_index(&crate::memory::user_dir(&paths.app_support))?;
+    let idx = if idx.chars().count() > USER_INDEX_MAX {
+        idx.chars().take(USER_INDEX_MAX).collect::<String>() + "\n…（用户记忆索引过长，其余条目按需召回或用 memory_search）"
+    } else { idx };
+    Some(prompt(paths, "user_memory").replace("{{INDEX}}", &idx))
+}
+
 pub fn project_memory_block(paths: &Paths, root: &Path) -> String {
     let index = crate::memory::load_index(&crate::memory::project_dir(root)).unwrap_or_else(|| "（还没有项目记忆）".into());
     prompt(paths, "project_memory").replace("{{INDEX}}", &index)
@@ -161,4 +172,21 @@ pub fn data_files(root: &Path, limit: usize) -> Vec<String> {
     files(root, limit * 4).into_iter().filter(|f| {
         Path::new(f).extension().map(|e| DATA_EXT.contains(&e.to_string_lossy().to_lowercase().as_str())).unwrap_or(false)
     }).take(limit).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn user_memory_always_loaded() {
+        let sup = std::env::temp_dir().join(format!("dpusermem-{}", crate::text::short_id(6)));
+        let paths = Paths::dev(sup.clone());
+        assert!(user_memory_block(&paths).is_none());
+        crate::memory::write(&crate::memory::user_dir(&sup), "金额单位", "金额默认用万元展示", "user", "金额一律用万元", None).unwrap();
+        let b = user_memory_block(&paths).unwrap();
+        assert!(b.contains("关于用户") && b.contains("金额单位") && b.contains("](金额单位.md)"), "{b}");
+        // long index is cut to USER_INDEX_MAX
+        for i in 0..80 { crate::memory::write(&crate::memory::user_dir(&sup), &format!("偏好条目{i}"), &"很长的描述".repeat(10), "user", "x", None).unwrap(); }
+        assert!(user_memory_block(&paths).unwrap().contains("用户记忆索引过长"));
+    }
 }

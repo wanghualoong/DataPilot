@@ -34,5 +34,5 @@ const p = E._edgePath({ x: 0, y: 10 }, { x: 400, y: 50 });
 ok(p.d.startsWith('M230,10') && p.d.endsWith('400,50'), 'edge leaves the facing sides');
 const src = fs.readFileSync(__dirname + '/../../Resources/web/er.js', 'utf8');
 ok(!/\beval\(|new Function|webkit/.test(src), 'no eval / no platform globals');
-ok(/Adapted from Chat2DB Community v5\.3\.8/.test(src), 'Chat2DB attribution header');
+ok(!/Adapted from/.test(src), 'no adapted third-party code');
 console.log(`\n${fails} failures`); process.exit(fails ? 1 : 0);

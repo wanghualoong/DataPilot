@@ -105,3 +105,17 @@
 
 复跑（修了流式卡住之后，`iso2`）：记忆开 **6/8，可学题 6/6**，`stale` 为空。第一次 s2 失分的原因是 s1 超时，没有拿到反馈，旧的“含退款”记忆没被改写；这次 s1 正常结束，模型直接把 `gmv-旧口径.md` 改写成新口径（没有另建重复文件），后面的 GMV 题全对。`topic:GMV = 2` 是指标误报：另一个文件是「目标完成率口径」，描述里提到了 GMV。
 
+
+## 用户层补齐（0.1.4，2026-11-21）
+对照 Claude Code 记忆机制分析（只用 docs/ 结论）和 agent-memory-reference（来源、确认状态、整理需证据）补上用户层：
+
+| 项 | 做法 |
+|---|---|
+| 常驻「关于你」 | 用户记忆 `AppSupport/memory/MEMORY.md` 索引（≤2000 字）每次进系统提示（`prompt::user_memory_block`，提示词 `user_memory.md`）；每轮 `<context>` 里再重复一遍 user/feedback 类条目描述（`preferences_block`，≤1200 字），弱模型对表格里的数值也照做 |
+| 用户级指令 | 记忆面板「用户记忆」顶部可编辑 `AppSupport/DATAPILOT.md`（RPC `memory/instructions`），所有项目都加载，只由用户修改 |
+| 可信度 | 抽取器给的 confirmed 只有在 evidence 或规则本身能在用户消息里找到原话（整段或任意 6 字窗口）时才保留，否则降为 pending（`extract::grounded`）；正文加 **来源：**（用户原话 / 助手推断）；召回时 pending 条目标题标“未确认：助手推断，先核实” |
+| 普通对话 | 不在项目里时，助手推断的业务口径（definition/rule/trap）不写入用户层 |
+| 可见性 | 每次写入发 `memory_saved`：「🧠 已记住：…（用户/项目记忆 · 你说的 / 推断，待确认）」；记忆面板显示已确认 / 待确认徽标和来源，待确认可一键确认 |
+| 日志 | 每次抽取写 core.log：`memory-extract: ok, saved N [文件], skipped M [原因]` 或失败原因；不写正文 |
+| 整理 | 用户层也做梦：同样门槛（≥24h 且 ≥5 个其他普通会话）、空闲触发、普通对话里 `/dream`；提示词 `memory_consolidate_user.md`（只写用户说过的偏好，项目专属口径降级为 pending） |
+| 评估 | `scripts/run_pref_eval.py --memory on|off`：普通对话里教一次「金额万元两位小数、结论先行」，再在两个全新项目里提问，检查答案。DeepSeek-V4.1-Flash：记忆关 0/2（全部写元）；只常驻索引时 0–1/2；加每轮偏好块后两题都用万元、结论先行，p2 4/4 全对，p3 3/5（模型把金额四舍五入到 0.1 万，非偏好问题） |

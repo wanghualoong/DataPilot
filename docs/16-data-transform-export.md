@@ -21,7 +21,7 @@ Python 中的 DataFrame 可在 `sql_query` 里按变量名查询（只注册到�
 - 来源：`sql` / `table` / `result_id`；格式：csv / xlsx / parquet / json；`columns` 选列或改名；`limit`。
 - CSV 默认带 UTF-8 BOM（Excel 打开中文不乱码）。
 - xlsx：XlsxWriter `constant_memory` 分批写（每批 2 万行），进度显示在内核任务列表；超过 1,048,575 行拒绝并建议 CSV。
-- 单元格处理链 `export_cells.py`（改编自 Chat2DB v5.3.8 `ExportCellProcessorChain`）：空值 → 日期时间（去时区）→ 数字（≥15 位整数转文本）→ 文本（32,767 字上限、bytes 转 hex）。
+- 单元格转换 `export_cells.py`（`convert(v)` 按值类型分发，`XlsxCells` 写入）：空值 / NaN / ±inf → 空单元格；日期时间去时区；≥15 位整数和超过 15 位有效数字的小数转文本；bytes 转 hex；列表 / 字典转 JSON；文本截到 32,767 字。
 - 同名文件自动加 `_2`、`_3`，从不覆盖。
 - 界面入口：SQL 结果卡「导出」、数据面板右键「导出表…」、看板导出菜单「导出数据集明细」、看板卡片 ⤓（当前筛选后的聚合数据）。
 

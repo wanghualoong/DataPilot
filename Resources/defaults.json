@@ -1,0 +1,9 @@
+{
+  "_comment": "Neutral built-in defaults. An organisation can add Resources/defaults.local.json (not in git) with its own providerPresets (listed first), docParseServer and localModelSyncHosts.",
+  "providerPresets": [
+    { "id": "custom", "zh": "自定义 / New API / vLLM", "en": "Custom / New API / vLLM", "providerName": "New API", "baseURL": "", "proxyMode": "global", "login": true },
+    { "id": "ollama", "zh": "本地 Ollama", "en": "Local Ollama", "providerName": "Ollama", "baseURL": "http://localhost:11434/v1", "proxyMode": "none" }
+  ],
+  "docParseServer": "",
+  "localModelSyncHosts": []
+}

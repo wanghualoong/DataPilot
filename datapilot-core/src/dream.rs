@@ -213,7 +213,7 @@ pub fn run(ctx: &Ctx, trigger: Trigger) -> Report {
         Trigger::Manual => {}
     }
     let ts = memory::topics(d, 200);
-    if ts.is_empty() || (ts.len() < 2 && trigger != Trigger::Manual) { return skip("还没有足够的项目记忆"); }
+    if ts.is_empty() || (ts.len() < 2 && trigger != Trigger::Manual) { return skip("还没有足够的记忆"); }
     let lock = d.join(".consolidate.lock");
     if let Some(t) = std::fs::read_to_string(&lock).ok().and_then(|l| l.split(' ').last().and_then(|x| x.trim().parse::<f64>().ok())) {
         if t0 - t < 3600.0 { return skip("另一个整理正在进行"); }
@@ -244,7 +244,9 @@ pub fn run(ctx: &Ctx, trigger: Trigger) -> Report {
     rep.sessions = n;
     let user = format!("## 记忆条目（{} 个）\n{listing}\n\n## 最近会话摘录（{n} 个会话）\n{}", ts.len(), if ex.is_empty() { "（无）".into() } else { ex });
     let (y, m, dd, ..) = crate::text::local_time(t0);
-    let sys = crate::prompt::prompt(&ctx.paths, "memory_consolidate").replace("{{TODAY}}", &format!("{y:04}-{m:02}-{dd:02}"));
+    // the user layer (AppSupport/memory) has its own prompt: personal preferences, no SQL evidence
+    let user_layer = ctx.dir == memory::user_dir(&ctx.paths.app_support);
+    let sys = crate::prompt::prompt(&ctx.paths, if user_layer { "memory_consolidate_user" } else { "memory_consolidate" }).replace("{{TODAY}}", &format!("{y:04}-{m:02}-{dd:02}"));
     let existing: Vec<String> = ts.iter().map(|t| t.file.clone()).collect();
 
     let apply = |rep: &mut Report| -> Result<(), String> {

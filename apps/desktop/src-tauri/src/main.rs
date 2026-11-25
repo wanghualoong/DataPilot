@@ -3,6 +3,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod core;
+#[cfg(windows)]
+mod folder_picker;
 mod newapi_login;
 
 use serde_json::Value;
@@ -37,6 +39,53 @@ async fn newapi_login(app: tauri::AppHandle, origin: String, fresh: Option<bool>
     }).await.map_err(|e| e.to_string())?
 }
 
+/// System notification (turn finished / error / needs approval), shown only when the main window is not focused
+/// (another app in front, or minimized). Returns whether it was shown.
+/// Windows: the taskbar button also flashes (a toast can be hidden by Focus Assist / notification settings).
+#[tauri::command]
+fn notify(app: tauri::AppHandle, title: String, body: String) -> bool {
+    use tauri_plugin_notification::NotificationExt;
+    let Some(w) = app.get_webview_window("main") else { return false };
+    if in_front(&w) { return false; }
+    #[cfg(windows)]
+    let _ = w.request_user_attention(Some(tauri::UserAttentionType::Informational));
+    match app.notification().builder().title(title).body(body).show() {
+        Ok(()) => true,
+        Err(e) => { eprintln!("notify: {e}"); false }
+    }
+}
+
+/// Is the main window the one the user is looking at? Windows: ask the OS for the foreground window (focus sits in
+/// the WebView2 child of another process, so the shell's own focus flag can be stale); elsewhere the window state.
+fn in_front(w: &tauri::WebviewWindow) -> bool {
+    if w.is_minimized().unwrap_or(false) || !w.is_visible().unwrap_or(true) { return false; }
+    #[cfg(windows)]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetForegroundWindow, GA_ROOT};
+        let Ok(me) = w.hwnd() else { return false };
+        let fg = unsafe { GetForegroundWindow() };
+        if fg.0.is_null() { return false; }
+        let root = unsafe { GetAncestor(fg, GA_ROOT) };
+        return root.0 as isize == me.0 as isize || fg.0 as isize == me.0 as isize;
+    }
+    #[allow(unreachable_code)]
+    w.is_focused().unwrap_or(false)
+}
+
+/// Folder picker like the macOS panel: files are visible but only folders can be chosen. Windows uses its own
+/// dialog (the standard folder picker hides files). Ok(None) = cancelled; Err elsewhere = use the dialog plugin
+/// (an `Option<Option<_>>` would serialize both "cancelled" and "not supported" as null).
+#[tauri::command(async)]
+fn pick_folder_native(app: tauri::AppHandle, title: String, ok: String, field: String, start: Option<String>) -> Result<Option<String>, String> {
+    #[cfg(windows)]
+    {
+        let owner = app.get_webview_window("main").and_then(|w| w.hwnd().ok()).map(|h| h.0 as isize).unwrap_or(0);
+        Ok(folder_picker::pick(owner, title, ok, field, start))
+    }
+    #[cfg(not(windows))]
+    { let _ = (app, title, ok, field, start); Err("unsupported".into()) }
+}
+
 #[tauri::command]
 fn newapi_login_cancel(app: tauri::AppHandle) { newapi_login::cancel(&app); }
 
@@ -44,16 +93,36 @@ fn newapi_login_cancel(app: tauri::AppHandle) { newapi_login::cancel(&app); }
 #[tauri::command]
 fn newapi_login_force() { newapi_login::FORCE.store(true, std::sync::atomic::Ordering::SeqCst); }
 
+/// Start so that the whole window is visible: Windows maximized (like most Windows apps); macOS the configured size
+/// shrunk to the screen's work area (menu bar and Dock excluded) and centred — 820 px is taller than small laptop screens.
+fn fit_to_screen(w: &tauri::WebviewWindow) {
+    #[cfg(windows)]
+    { let _ = w.maximize(); }
+    #[cfg(not(windows))]
+    {
+        let Ok(Some(m)) = w.current_monitor() else { return };
+        let wa = m.work_area();
+        let Ok(size) = w.outer_size() else { return };
+        let (ww, wh) = (size.width.min(wa.size.width), size.height.min(wa.size.height));
+        if (ww, wh) != (size.width, size.height) { let _ = w.set_size(tauri::PhysicalSize::new(ww, wh)); }
+        let x = wa.position.x + ((wa.size.width - ww) / 2) as i32;
+        let y = wa.position.y + ((wa.size.height - wh) / 2) as i32;
+        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let exe_dir = std::env::current_exe()?.parent().map(|p| p.to_path_buf()).unwrap_or_default();
             let layout = core::Layout::locate(&exe_dir, app.path().resource_dir().ok());
             let handle = app.handle().clone();
             let sink: core::EventSink = Arc::new(move |v: Value| { let _ = handle.emit("core-event", v); });
             app.manage(CoreState(core::CoreProcess::new(layout, sink)));
+            if let Some(w) = app.get_webview_window("main") { fit_to_screen(&w); }
             if let Ok(origin) = std::env::var("DP_SELFTEST_NEWAPI") {
                 let h = app.handle().clone();
                 std::thread::spawn(move || {
@@ -64,7 +133,7 @@ fn main() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![core_request, core_info, newapi_login, newapi_login_cancel, newapi_login_force])
+        .invoke_handler(tauri::generate_handler![core_request, core_info, notify, pick_folder_native, newapi_login, newapi_login_cancel, newapi_login_force])
         .build(tauri::generate_context!())
         .expect("error while building DataPilot")
         .run(|app, ev| {

@@ -1,0 +1,440 @@
+[
+ {
+  "type": "postgres",
+  "label": "PostgreSQL",
+  "dialect": "postgres",
+  "default_port": 5432,
+  "driver": "pg8000",
+  "note": "也适用于金仓 KingbaseES、openGauss 等 PostgreSQL 协议数据库",
+  "fields": [
+   {
+    "key": "host",
+    "label": "主机 / Host",
+    "kind": "text",
+    "required": true,
+    "default": "localhost"
+   },
+   {
+    "key": "port",
+    "label": "端口 / Port",
+    "kind": "int",
+    "required": true
+   },
+   {
+    "key": "database",
+    "label": "数据库 / Database",
+    "kind": "text"
+   },
+   {
+    "key": "user",
+    "label": "用户名 / User",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "password",
+    "label": "密码 / Password",
+    "kind": "secret"
+   },
+   {
+    "key": "schema",
+    "label": "Schema",
+    "kind": "text",
+    "default": "public"
+   },
+   {
+    "key": "ssl",
+    "label": "SSL",
+    "kind": "bool"
+   },
+   {
+    "key": "ssh",
+    "label": "通过 SSH 隧道连接 / Connect via SSH tunnel",
+    "kind": "bool"
+   },
+   {
+    "key": "ssh_host",
+    "label": "SSH 主机 / SSH host",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_port",
+    "label": "SSH 端口 / SSH port",
+    "kind": "int",
+    "group": "ssh",
+    "default": "22"
+   },
+   {
+    "key": "ssh_user",
+    "label": "SSH 用户 / SSH user",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_key",
+    "label": "私钥文件（可选）/ Private key (optional)",
+    "kind": "path",
+    "group": "ssh",
+    "default": "~/.ssh/id_ed25519"
+   },
+   {
+    "key": "ssh_secret",
+    "label": "SSH 密码或私钥口令 / SSH password or key passphrase",
+    "kind": "secret",
+    "group": "ssh"
+   }
+  ]
+ },
+ {
+  "type": "mysql",
+  "label": "MySQL / MariaDB",
+  "dialect": "mysql",
+  "default_port": 3306,
+  "driver": "pymysql",
+  "note": "也适用于 TiDB、Doris、StarRocks 等 MySQL 协议数据库",
+  "fields": [
+   {
+    "key": "host",
+    "label": "主机 / Host",
+    "kind": "text",
+    "required": true,
+    "default": "localhost"
+   },
+   {
+    "key": "port",
+    "label": "端口 / Port",
+    "kind": "int",
+    "required": true
+   },
+   {
+    "key": "database",
+    "label": "数据库 / Database",
+    "kind": "text"
+   },
+   {
+    "key": "user",
+    "label": "用户名 / User",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "password",
+    "label": "密码 / Password",
+    "kind": "secret"
+   },
+   {
+    "key": "ssl",
+    "label": "SSL",
+    "kind": "bool"
+   },
+   {
+    "key": "ssh",
+    "label": "通过 SSH 隧道连接 / Connect via SSH tunnel",
+    "kind": "bool"
+   },
+   {
+    "key": "ssh_host",
+    "label": "SSH 主机 / SSH host",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_port",
+    "label": "SSH 端口 / SSH port",
+    "kind": "int",
+    "group": "ssh",
+    "default": "22"
+   },
+   {
+    "key": "ssh_user",
+    "label": "SSH 用户 / SSH user",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_key",
+    "label": "私钥文件（可选）/ Private key (optional)",
+    "kind": "path",
+    "group": "ssh",
+    "default": "~/.ssh/id_ed25519"
+   },
+   {
+    "key": "ssh_secret",
+    "label": "SSH 密码或私钥口令 / SSH password or key passphrase",
+    "kind": "secret",
+    "group": "ssh"
+   }
+  ]
+ },
+ {
+  "type": "sqlserver",
+  "label": "SQL Server",
+  "dialect": "tsql",
+  "default_port": 1433,
+  "driver": "pymssql",
+  "fields": [
+   {
+    "key": "host",
+    "label": "主机 / Host",
+    "kind": "text",
+    "required": true,
+    "default": "localhost"
+   },
+   {
+    "key": "port",
+    "label": "端口 / Port",
+    "kind": "int",
+    "required": true
+   },
+   {
+    "key": "database",
+    "label": "数据库 / Database",
+    "kind": "text"
+   },
+   {
+    "key": "user",
+    "label": "用户名 / User",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "password",
+    "label": "密码 / Password",
+    "kind": "secret"
+   },
+   {
+    "key": "schema",
+    "label": "Schema",
+    "kind": "text",
+    "default": "dbo"
+   },
+   {
+    "key": "ssh",
+    "label": "通过 SSH 隧道连接 / Connect via SSH tunnel",
+    "kind": "bool"
+   },
+   {
+    "key": "ssh_host",
+    "label": "SSH 主机 / SSH host",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_port",
+    "label": "SSH 端口 / SSH port",
+    "kind": "int",
+    "group": "ssh",
+    "default": "22"
+   },
+   {
+    "key": "ssh_user",
+    "label": "SSH 用户 / SSH user",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_key",
+    "label": "私钥文件（可选）/ Private key (optional)",
+    "kind": "path",
+    "group": "ssh",
+    "default": "~/.ssh/id_ed25519"
+   },
+   {
+    "key": "ssh_secret",
+    "label": "SSH 密码或私钥口令 / SSH password or key passphrase",
+    "kind": "secret",
+    "group": "ssh"
+   }
+  ]
+ },
+ {
+  "type": "oracle",
+  "label": "Oracle",
+  "dialect": "oracle",
+  "default_port": 1521,
+  "driver": "oracledb (thin)",
+  "note": "数据库一栏填服务名（service name）",
+  "fields": [
+   {
+    "key": "host",
+    "label": "主机 / Host",
+    "kind": "text",
+    "required": true,
+    "default": "localhost"
+   },
+   {
+    "key": "port",
+    "label": "端口 / Port",
+    "kind": "int",
+    "required": true
+   },
+   {
+    "key": "database",
+    "label": "数据库 / Database",
+    "kind": "text"
+   },
+   {
+    "key": "user",
+    "label": "用户名 / User",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "password",
+    "label": "密码 / Password",
+    "kind": "secret"
+   },
+   {
+    "key": "schema",
+    "label": "Schema（默认用户名）",
+    "kind": "text"
+   },
+   {
+    "key": "ssh",
+    "label": "通过 SSH 隧道连接 / Connect via SSH tunnel",
+    "kind": "bool"
+   },
+   {
+    "key": "ssh_host",
+    "label": "SSH 主机 / SSH host",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_port",
+    "label": "SSH 端口 / SSH port",
+    "kind": "int",
+    "group": "ssh",
+    "default": "22"
+   },
+   {
+    "key": "ssh_user",
+    "label": "SSH 用户 / SSH user",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_key",
+    "label": "私钥文件（可选）/ Private key (optional)",
+    "kind": "path",
+    "group": "ssh",
+    "default": "~/.ssh/id_ed25519"
+   },
+   {
+    "key": "ssh_secret",
+    "label": "SSH 密码或私钥口令 / SSH password or key passphrase",
+    "kind": "secret",
+    "group": "ssh"
+   }
+  ]
+ },
+ {
+  "type": "clickhouse",
+  "label": "ClickHouse",
+  "dialect": "clickhouse",
+  "default_port": 8123,
+  "driver": "clickhouse-connect (HTTP)",
+  "fields": [
+   {
+    "key": "host",
+    "label": "主机 / Host",
+    "kind": "text",
+    "required": true,
+    "default": "localhost"
+   },
+   {
+    "key": "port",
+    "label": "端口 / Port",
+    "kind": "int",
+    "required": true
+   },
+   {
+    "key": "database",
+    "label": "数据库 / Database",
+    "kind": "text"
+   },
+   {
+    "key": "user",
+    "label": "用户名 / User",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "password",
+    "label": "密码 / Password",
+    "kind": "secret"
+   },
+   {
+    "key": "ssl",
+    "label": "HTTPS",
+    "kind": "bool"
+   },
+   {
+    "key": "ssh",
+    "label": "通过 SSH 隧道连接 / Connect via SSH tunnel",
+    "kind": "bool"
+   },
+   {
+    "key": "ssh_host",
+    "label": "SSH 主机 / SSH host",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_port",
+    "label": "SSH 端口 / SSH port",
+    "kind": "int",
+    "group": "ssh",
+    "default": "22"
+   },
+   {
+    "key": "ssh_user",
+    "label": "SSH 用户 / SSH user",
+    "kind": "text",
+    "group": "ssh"
+   },
+   {
+    "key": "ssh_key",
+    "label": "私钥文件（可选）/ Private key (optional)",
+    "kind": "path",
+    "group": "ssh",
+    "default": "~/.ssh/id_ed25519"
+   },
+   {
+    "key": "ssh_secret",
+    "label": "SSH 密码或私钥口令 / SSH password or key passphrase",
+    "kind": "secret",
+    "group": "ssh"
+   }
+  ]
+ },
+ {
+  "type": "sqlite",
+  "label": "SQLite 文件",
+  "dialect": "sqlite",
+  "driver": "sqlite3",
+  "fields": [
+   {
+    "key": "path",
+    "label": "文件路径 / File",
+    "kind": "file",
+    "required": true
+   }
+  ]
+ },
+ {
+  "type": "duckdb",
+  "label": "DuckDB 文件",
+  "dialect": "duckdb",
+  "driver": "duckdb",
+  "fields": [
+   {
+    "key": "path",
+    "label": "文件路径 / File",
+    "kind": "file",
+    "required": true
+   }
+  ]
+ }
+]

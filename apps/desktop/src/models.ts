@@ -60,12 +60,20 @@ export function mentionedTables(text: string, known: string[]): string[] {
   return out;
 }
 
-/** Optional provider presets (same as SwiftUI ProviderPreset). */
-export const PRESETS = [
-  { id: "custom", zh: "自定义 / New API / vLLM", en: "Custom / New API / vLLM", providerName: "New API", baseURL: "", proxyMode: "global" },
-  { id: "dku", zh: "DKU AI Gateway (NetID)", en: "DKU AI Gateway (NetID)", providerName: "NetID", baseURL: "https://aichat.dukekunshan.edu.cn:3443/v1", proxyMode: "none" },
+/** Provider preset of the first-run wizard / quick login. `login`: New API gateway (log in & pick a key);
+ *  `loginHint`: text next to the login button (e.g. which account to use). */
+export type Preset = { id: string; zh: string; en: string; providerName: string; baseURL: string; proxyMode: string; login?: boolean; loginHint?: { zh: string; en: string } };
+
+/** Neutral presets, used until the core's `app/defaults` (Resources/defaults.json + optional defaults.local.json) arrives. */
+export const FALLBACK_PRESETS: Preset[] = [
+  { id: "custom", zh: "自定义 / New API / vLLM", en: "Custom / New API / vLLM", providerName: "New API", baseURL: "", proxyMode: "global", login: true },
   { id: "ollama", zh: "本地 Ollama", en: "Local Ollama", providerName: "Ollama", baseURL: "http://localhost:11434/v1", proxyMode: "none" },
-] as const;
+];
+
+export function presets(defaults?: { providerPresets?: Preset[] }): Preset[] {
+  const p = defaults?.providerPresets;
+  return Array.isArray(p) && p.length ? p : FALLBACK_PRESETS;
+}
 
 /** The chat model added (and selected) by default: id ends with "local", prefer qwen3 (Swift AppModel.defaultLocalModel). */
 export function defaultLocalModel(models: string[]): string | undefined {

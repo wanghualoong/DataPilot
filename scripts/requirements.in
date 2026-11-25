@@ -20,3 +20,4 @@ clickhouse-connect
 pymysql
 pg8000
 pytz
+matplotlib

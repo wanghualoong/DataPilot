@@ -27,6 +27,33 @@ pub fn connections(ws: &Path) -> Vec<Value> {
         .and_then(|v| v["connections"].as_array().cloned()).unwrap_or_default()
 }
 
+/// Connection form definitions: Resources/kernel/dataagent/db_types.json (the kernel reads the same file).
+pub fn db_types(resources: &Path) -> Result<Value, String> {
+    let p = resources.join("kernel/dataagent/db_types.json");
+    let t = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+    serde_json::from_str(&t).map_err(|e| format!("{}: {e}", p.display()))
+}
+
+/// Saved connections as the kernel's `db_connections` returns them (plus `dialect`, `port_effective`; `ports`).
+pub fn connections_for_ui(ws: &Path, types: &Value) -> Value {
+    let mut ports: Vec<u64> = vec![];
+    let out: Vec<Value> = connections(ws).into_iter().filter(|c| c.is_object()).map(|mut c| {
+        let t = types.as_array().and_then(|a| a.iter().find(|x| x["type"] == c["type"]));
+        let file = matches!(c["type"].as_str(), Some("sqlite" | "duckdb"));
+        let port = if file || t.is_none() { None } else {
+            c["port"].as_u64().or_else(|| c["port"].as_str().and_then(|x| x.trim().parse().ok())).filter(|p| *p > 0)
+                .or_else(|| t.and_then(|t| t["default_port"].as_u64()))
+        };
+        ports.extend(port);
+        c["dialect"] = t.map(|t| t["dialect"].clone()).unwrap_or(Value::Null);
+        c["port_effective"] = json!(port);
+        c
+    }).collect();
+    ports.sort();
+    ports.dedup();
+    json!({"connections": out, "ports": ports})
+}
+
 fn params(c: &ToolCtx, a: &Value) -> Result<Map<String, Value>, String> {
     let r = sv(a, "connection");
     let all = connections(c.workspace());
@@ -102,7 +129,18 @@ pub fn describe(r: &Value) -> String {
 
 fn db_extract(a: &Value, c: &ToolCtx) -> Result<ToolResult, String> {
     let p = merge(params(c, a)?, pick(a, &["tables", "sql", "as", "limit"]));
-    let r = c.kernel("db_extract", p, 3600)?;
+    let t0 = std::time::Instant::now();
+    let r = c.kernel("db_extract", p, 3600);
+    let ms = t0.elapsed().as_millis().to_string();
+    match &r {
+        Ok(v) => {
+            let tables = v["tables"].as_array().map(|a| a.len()).unwrap_or(0);
+            let rows: u64 = v["tables"].as_array().into_iter().flatten().filter_map(|t| t["rows"].as_u64()).sum();
+            crate::log::info("db_extract", &c.shared.id, &[("tables", tables.to_string()), ("rows", rows.to_string()), ("ms", ms)]);
+        }
+        Err(e) => crate::log::warn("db_extract", &c.shared.id, &[("ok", "0".into()), ("ms", ms), ("err", crate::log::err_text(e))]),
+    }
+    let r = r?;
     Ok(ToolResult::with(describe(&r), json!({"kind": "db_extract", "result": r})))
 }
 
@@ -127,4 +165,29 @@ fn query_save(a: &Value, c: &ToolCtx) -> Result<ToolResult, String> {
         "delete" => "已删除。".into(),
         _ => format!("✅ 已保存到「我的查询」：{}", sv(&r["query"], "name")),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn db_types_and_connections_without_kernel() {
+        let res = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Resources");
+        let types = db_types(&res).unwrap();
+        let names: Vec<&str> = types.as_array().unwrap().iter().filter_map(|t| t["type"].as_str()).collect();
+        assert_eq!(names, ["postgres", "mysql", "sqlserver", "oracle", "clickhouse", "sqlite", "duckdb"]);
+        let ws = std::env::temp_dir().join(format!("dp-dbconn-{}", crate::text::short_id(6)));
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(ws.join("connections.json"), r#"{"version":1,"connections":[
+            {"id":"a","type":"mysql","host":"h"},{"id":"b","type":"postgres","port":6543},
+            {"id":"c","type":"sqlite","path":"x.db"},{"id":"d","type":"mysql","port":"3306"}]}"#).unwrap();
+        let r = connections_for_ui(&ws, &types);
+        let c = r["connections"].as_array().unwrap();
+        assert_eq!(c[0]["port_effective"], 3306);
+        assert_eq!(c[0]["dialect"], "mysql");
+        assert_eq!(c[1]["port_effective"], 6543);
+        assert!(c[2]["port_effective"].is_null());
+        assert_eq!(r["ports"], json!([3306, 6543]));
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }

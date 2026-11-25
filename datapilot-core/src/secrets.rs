@@ -55,7 +55,7 @@ impl Keychain {
 }
 
 impl SecretStore for Keychain {
-    fn api_key(&self, p: &str) -> Option<String> { Self::read(Self::API_SERVICE, p).or_else(|| Self::read("edu.duke.datapilot.apikeys", p)) }
+    fn api_key(&self, p: &str) -> Option<String> { Self::read(Self::API_SERVICE, p) }
     fn db_password(&self, c: &str) -> Option<String> { Self::read(Self::DB_SERVICE, c) }
     fn ssh_secret(&self, c: &str) -> Option<String> { Self::read(Self::SSH_SERVICE, c) }
     fn set(&self, kind: &str, id: &str, value: Option<&str>) -> Result<(), String> {

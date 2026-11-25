@@ -118,6 +118,15 @@ pub fn contain_children() {
 
 pub fn copy_tree(src: &Path, dest: &Path) -> bool { super::copy_tree_plain(src, dest).is_ok() }
 
+pub fn hide(p: &Path) {
+    use windows_sys::Win32::Storage::FileSystem::{GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_HIDDEN, INVALID_FILE_ATTRIBUTES};
+    let w = wide(&p.to_string_lossy());
+    unsafe {
+        let a = GetFileAttributesW(w.as_ptr());
+        if a != INVALID_FILE_ATTRIBUTES && a & FILE_ATTRIBUTE_HIDDEN == 0 { SetFileAttributesW(w.as_ptr(), a | FILE_ATTRIBUTE_HIDDEN); }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

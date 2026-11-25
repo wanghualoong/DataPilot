@@ -54,6 +54,23 @@ pub fn spawn(policy: &Policy, cmd: &[String], env: &[(String, String)], cwd: &Pa
     Ok(Spawned { proc: Proc(proc), stdin, stdout, stderr })
 }
 
+/// The kernel failed to start with a sandbox denial (`stderr`). Windows: attempt 0 re-grants the container access to the
+/// whole workspace / tmp / outputs trees (ACLs below may be foreign or protected); attempt 1 runs this workspace without
+/// the AppContainer from now on (still in the Job Object). True = worth starting again. macOS: nothing to repair.
+#[cfg(windows)]
+pub fn recover(policy: &Policy, stderr: &str, attempt: u32) -> bool {
+    let why = stderr.lines().rev().find(|l| denied(l)).unwrap_or("").trim().to_string();
+    if attempt == 0 {
+        match appcontainer::repair(policy) {
+            Ok(()) => { crate::log::warn("sandbox_repair", "", &[("ws", policy.workspace.display().to_string()), ("why", crate::log::err_text(&why))]); return true; }
+            Err(e) => crate::log::warn("sandbox_repair", "", &[("ws", policy.workspace.display().to_string()), ("err", crate::log::err_text(&e))]),
+        }
+    }
+    appcontainer::relax(policy, &why)
+}
+#[cfg(not(windows))]
+pub fn recover(_policy: &Policy, _stderr: &str, _attempt: u32) -> bool { false }
+
 /// argv that runs a shell command line (macOS: zsh -c; Windows: PowerShell -EncodedCommand).
 pub fn shell(command: &str) -> Vec<String> { imp::shell(command) }
 

@@ -1,6 +1,6 @@
 # 21 · Windows 实测清单（M3）
 
-安装包：`apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/DataPilot_0.1.0_x64-setup.exe`（Mac 上交叉编译，未签名）。
+安装包：`apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/DataPilot_0.1.11_x64-setup.exe`（Mac 上交叉编译，未签名）。
 重新打包：Mac 上 `apps/desktop/scripts/build_win.sh`；在 Windows 上打包用 `scripts\windows\build.ps1`。
 
 ## 安装
@@ -11,7 +11,7 @@
 ## 基本功能（与 Mac 打包实测对应）
 - [ ] 引导页：填写模型服务和 API Key → 保存。打开「凭据管理器 → Windows 凭据 → 普通凭据」，应能看到 `io.github.datapilot.apikeys/<id>`。
 - [ ] 新会话发一条消息，能正常流式回复，并自动生成标题。
-- [ ] 「登录并选择 Key」：弹出网关登录窗口，登录（NetID / 账号密码）后自动列出 Key；选一个后模型列表弹出，主模型自动设好。
+- [ ] 「登录并选择 Key」：弹出网关登录窗口，登录（SSO / 账号密码）后自动列出 Key；选一个后模型列表弹出，主模型自动设好。
 - [ ] 模型回复中途点停止（⌘. / Ctrl+.），应在 1 秒内停下。
 - [ ] 设置 → 通用 → 界面语言切到 English，重新加载后界面为英文；切回简体中文。
 - [ ] 导入表格后，检查器「数据」页签马上出现新表（不用等本轮结束）。

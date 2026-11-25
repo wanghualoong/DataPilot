@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { core } from "./transport";
 import { addUser, answerCard, emptyChat, fromHistory, reduce, type ChatState } from "./reduce";
 import type { AgentEvent, ProjectInfo, SessionInfo, Mode } from "./protocol/rpc";
+import { notifyBackground } from "./native";
 import { L } from "./i18n";
 import { chatModels, isLocalModel } from "./models";
 
@@ -34,6 +35,12 @@ interface AppState {
   onboarding: boolean;
   /** "Log in & choose key" sheet */
   quickLogin: boolean;
+  /** built-in defaults of this build (core app/defaults): provider presets, OCR server, sync gateways */
+  defaults?: { providerPresets?: any[]; docParseServer?: string; localModelSyncHosts?: string[] };
+  /** original-page view of a scanned PDF / image (PageCompare) */
+  pageView?: { path: string; page?: number };
+  /** folder picked for a new project, waiting for the user to trust it (TrustFolder dialog) */
+  trustFolder?: string;
 
   init(): Promise<void>;
   reload(): Promise<void>;
@@ -50,6 +57,8 @@ interface AppState {
   remove(id: string): Promise<void>;
   rewind(turnId: string): Promise<void>;
   openProject(path: string): Promise<void>;
+  /** picked folder → open directly when it is already a project, otherwise ask the user to trust it first */
+  requestProject(path: string): void;
   setSearch(q: string): Promise<void>;
   fail(e: unknown): void;
   note(t: string): void;
@@ -91,8 +100,27 @@ export const useApp = create<AppState>((set, get) => {
     return p;
   };
 
+  // background notifications: finished / error / waiting for the user (one per turn for errors)
+  const errored = new Set<string>();
+  const notifyFor = (session: string, e: AgentEvent) => {
+    const title = get().sessions.find((x) => x.id === session)?.title || "DataPilot";
+    const t = e.type as string;
+    if (t === "approval_required") notifyBackground(L("需要你审批", "Approval needed") + " · " + title, (e as any).request?.summary ?? "");
+    else if (t === "question") notifyBackground(L("需要你回答", "Question for you") + " · " + title, (e as any).question ?? "");
+    else if (t === "plan_proposed") notifyBackground(L("计划待确认", "Plan to review") + " · " + title, L("请回到 DataPilot 确认计划", "Review the plan in DataPilot"));
+    else if (t === "error") { errored.add(session); notifyBackground(L("出错了", "Error") + " · " + title, (e as any).text ?? ""); }
+    else if (t === "turn_finished") {
+      const hadErr = errored.delete(session);
+      const reason = (e as any).reason;
+      if (hadErr || reason === "cancelled") return;
+      if (reason === "error" || reason === "no_model") notifyBackground(L("出错了", "Error") + " · " + title, L("本轮没有完成，请回到 DataPilot 查看", "The turn did not finish — open DataPilot to see why"));
+      else notifyBackground(L("已完成", "Done") + " · " + title, reason === "max_turns" ? L("已达到最大轮数，回到 DataPilot 回复「继续」可接着做", "Step limit reached — reply \"continue\" in DataPilot to go on") : L("分析已完成，点击回到 DataPilot 查看结果", "Finished — open DataPilot to see the result"));
+    }
+  };
+
   return {
     sessions: [], projects: [], chats: {}, open: {}, search: "", ready: false, attached: [], dataVersion: 0, showContext: false, tableNames: [], sidebarHidden: false, onboarding: false, quickLogin: false,
+    inspector: { tab: "data" },   // right panel open by default (data tab); the user can still close it
 
     async init() {
       if (initialized) return;
@@ -102,6 +130,7 @@ export const useApp = create<AppState>((set, get) => {
           const { session, event } = n.params as { session: string; event: AgentEvent };
           patchChat(session, (c) => reduce(c, event));
           if (event.type === "title_changed") get().reload();
+          notifyFor(session, event);
           // data changed mid-turn (import / python / semantic layer / derived table): panels reload at once (Swift dataVersion)
           if (event.type === "tool_finished" && ["data_import", "python", "catalog_update", "data_transform", "db_extract"].includes((event as any).message?.name ?? "")) {
             set((s) => ({ dataVersion: s.dataVersion + 1 }));
@@ -111,10 +140,16 @@ export const useApp = create<AppState>((set, get) => {
             set((s) => ({ dataVersion: s.dataVersion + 1 }));
             get().send("", undefined).catch(() => {}); // flush pending interjections
           }
-        } else if (n.method === "core/notice") set({ notice: n.params.text });
+        } else if (n.method === "core/notice") {
+          set({ notice: n.params.text });
+          // weekly local-model sync changed config.json (models / roles): refresh menus and settings
+          if ((n.params as any).topic === "models") get().loadConfig().catch(() => {});
+        }
       });
       try {
-        await core.request("initialize"); await get().reload(); set({ ready: true });
+        await core.request("initialize");
+        const defaults = await core.request("app/defaults").catch(() => undefined);
+        await get().reload(); set({ ready: true, defaults });
         const c = await get().loadConfig().catch(() => null);
         if (c && (!c.providers?.length || !c.roles?.main)) set({ onboarding: true });
       }
@@ -171,7 +206,10 @@ export const useApp = create<AppState>((set, get) => {
         }
         const files = get().attached;
         if (files.length) {
-          text = L("[已上传文件] ", "[Uploaded files] ") + files.join(", ") + "\n\n" + (text.trim() ? text : L("请导入并概览这些数据。", "Please import and summarize these files."));
+          const allData = files.every((f) => /\.(csv|tsv|xlsx|xls|xlsm|parquet|json|jsonl|ndjson|txt)$/i.test(f));
+          const ask = allData ? L("请导入并概览这些数据。", "Please import and summarize these files.")
+            : L("请阅读这些文件并概览内容（数据文件导入分析，PDF / Word / 图片读取文字和表格）。", "Please read these files and summarize them (import data files; read text and tables of PDFs, documents and images).");
+          text = L("[已上传文件] ", "[Uploaded files] ") + files.join(", ") + "\n\n" + (text.trim() ? text : ask);
           set({ attached: [] });
         }
         patchChat(id, (x) => ({ ...addUser(x, text), running: true }));
@@ -239,6 +277,12 @@ export const useApp = create<AppState>((set, get) => {
         patchChat(id, () => fromHistory(h));
         set({ notice: r.workspace_restored ? L("已回退到这条消息之前（数据也已恢复）", "Rewound to before this message (data restored too)") : L("已回退到这条消息之前", "Rewound to before this message") });
       } catch (e) { get().fail(e); }
+    },
+
+    requestProject(path) {
+      const norm = (p: string) => p.replace(/[\\/]+$/, "");
+      if (get().projects.some((p) => norm(p.path) === norm(path))) { get().openProject(path); return; }
+      set({ trustFolder: path });
     },
 
     async openProject(path) {

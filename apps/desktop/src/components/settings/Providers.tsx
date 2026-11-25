@@ -1,7 +1,7 @@
-import { IconBtn, Status } from "../ui";
+import { IconBtn, Status, Switch } from "../ui";
 import { X, Plus } from "lucide-react";
 import { ask } from "../../native";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { L } from "../../i18n";
 import { useApp } from "../../store";
 import { core } from "../../transport";
@@ -60,7 +60,7 @@ export function ModelPicker({ provider, onClose, fresh }: { provider: any; onClo
               {shown.map((m) => (
                 <label key={m.id} className="row small">
                   <input type="checkbox" checked={sel.has(m.id)} onChange={(e) => { const s = new Set(sel); e.target.checked ? s.add(m.id) : s.delete(m.id); setSel(s); }} />
-                  <span className="mono">{m.id}</span>{m.local && <span className="chip">{L("本地", "local")}</span>}
+                  <span>{m.id}</span>{m.local && <span className="chip">{L("本地", "local")}</span>}
                 </label>
               ))}
             </div>
@@ -74,6 +74,55 @@ export function ModelPicker({ provider, onClose, fresh }: { provider: any; onClo
         )}
         <div className="row end"><button onClick={() => onClose(false)}>{L("取消", "Cancel")}</button><button className="primary" disabled={!list || !sel.size} onClick={save}>{L("添加", "Add")}</button></div>
       </div>
+    </div>
+  );
+}
+
+/** Providers on a sync gateway (设置 → 通用 → 本地模型同步的网关, default: built-in defaults): weekly sync of their "*local" models
+ *  (core models/sync_local; state in config.localModelSync). */
+function LocalModelSync({ p }: { p: any }) {
+  const config = useApp((s) => s.config);
+  const [eligible, setEligible] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string>();
+  useEffect(() => {
+    core.request("models/sync_local", { provider_id: p.id, dry: true }).then((r: any) => setEligible(!!r?.eligible)).catch(() => setEligible(false));
+  }, [p.id, p.baseURL, JSON.stringify(config?.settings?.localModelSyncHosts ?? null)]);
+  if (!eligible) return null;
+  const st = config?.localModelSync?.[p.id];
+  const on = config?.settings?.localModelAutoSync !== false;
+  const when = (t?: number) => (t ? new Date(t * 1000).toLocaleString() : "");
+  const last = !st ? L("尚未检查", "Not checked yet")
+    : st.ok === false ? L(`${when(st.lastTry)} 检查失败：${st.error ?? ""}`, `${when(st.lastTry)} check failed: ${st.error ?? ""}`)
+    : L(`上次检查：${when(st.lastCheck)}`, `Last check: ${when(st.lastCheck)}`)
+      + (st.added?.length || st.removed?.length
+        ? L(`（新增 ${st.added?.length ?? 0}，移除 ${st.removed?.length ?? 0}）`, ` (added ${st.added?.length ?? 0}, removed ${st.removed?.length ?? 0})`)
+        : L("（没有变化）", " (no change)"));
+  const check = async () => {
+    setBusy(true); setMsg(undefined);
+    try {
+      const r: any = await core.request("models/sync_local", { provider_id: p.id, force: true });
+      const x = r?.results?.[0];
+      await useApp.getState().loadConfig();
+      if (!x) setMsg(L("没有可检查的服务", "Nothing to check"));
+      else if (!x.ok) setMsg("⚠️ " + L("检查失败：", "Check failed: ") + (x.error ?? ""));
+      else if (!x.added?.length && !x.removed?.length) setMsg("✅ " + L("本地模型没有变化", "Local models unchanged"));
+      else setMsg("✅ " + [x.added?.length ? L("新增 ", "added ") + x.added.join("、") : "", x.removed?.length ? L("移除 ", "removed ") + x.removed.join("、") : ""].filter(Boolean).join(L("；", "; ")));
+    } catch (e) { setMsg("⚠️ " + String(e)); }
+    setBusy(false);
+  };
+  return (
+    <div className="pane bordered localsync">
+      <div className="row wrap">
+        <Switch on={on} label={L("每周自动同步本地模型", "Sync local models weekly")} onChange={(v) => patch({ settings: { localModelAutoSync: v } })}
+          title={L("每周检查一次网关上以 local 结尾的模型：新增的自动添加，下线的自动删除", "Weekly: add new *local models from the gateway, remove ones it no longer serves")} />
+        <span className="grow" />
+        <button disabled={busy} onClick={check}>{busy ? L("检查中…", "Checking…") : L("立即检查", "Check now")}</button>
+      </div>
+      <div className="muted small">{L("只处理名字以 local 结尾的模型；其他模型和你手动设置的「本地」标记不受影响。正在使用的模型下线时会自动换成剩下的本地模型。",
+        "Only models ending in “local” are touched; other models and manual local tags stay. A role using a removed model switches to a remaining local model.")}</div>
+      <div className="muted small synclast">{last}</div>
+      <Status msg={msg} />
     </div>
   );
 }
@@ -128,6 +177,7 @@ function ProviderEditor({ p, isNew, onDone }: { p: any; isNew: boolean; onDone: 
         {!isNew && <button className="danger" onClick={remove}>{L("删除", "Delete")}</button>}
         <Status msg={msg} />
       </div>
+      {!isNew && <LocalModelSync p={p} />}
       <h4>{L(`已添加的模型（${added.length}）`, `Added models (${added.length})`)}</h4>
       <div className="muted small">{added.length
         ? L("点击模型右侧的「本地 / 云端」标签切换：本地模式下只会使用标为「本地」的模型。名称含 local、ollama，或服务地址是 localhost / 内网 IP 的模型默认标为本地。",
@@ -137,7 +187,7 @@ function ProviderEditor({ p, isNew, onDone }: { p: any; isNew: boolean; onDone: 
         const k = `${p.id}|${m}`;
         return (
           <div key={m} className="irow small">
-            <span className="grow mono">{m}</span><span className="chip">{modelKind(m)}</span>
+            <span className="grow">{m}</span><span className="chip">{modelKind(m)}</span>
             <label title={L("本地模式下只能用标记为本地的模型", "Local-only mode uses only local models")}>
               <input type="checkbox" checked={isLocalModel(config, p.id, m)} onChange={(e) => patch({ settings: { localMarks: { [k]: e.target.checked } } })} /> {L("本地", "local")}
             </label>

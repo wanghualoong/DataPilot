@@ -108,4 +108,4 @@ ECharts 渲染本身只占约 0.15 s。
 
 ## spec 版本与卡片编辑（2026-11-10）
 - `version: 2`：`y` 统一为 `{field, agg}`；显示开关放在 `options.display`（legend / label / splitLine / symbol）。旧 spec 加载时由 `dashboard.js` 的 `migrateSpec` 自动升级。
-- 卡片 ✎ 编辑面板（字段参照 Chat2DB ChartSchema）：维度、度量（含 measures）、汇总方式、颜色分组 `series`、排序 `options.sort`（value_desc / value_asc / dim_asc / dim_desc）、最多显示 `options.limit`、显示开关。修改即时生效，并以 `{type:'widgetEdit', widget, patch}` 通知外壳写回 spec。
+- 卡片 ✎ 编辑面板：维度、度量（含 measures）、汇总方式、颜色分组 `series`、排序 `options.sort`（value_desc / value_asc / dim_asc / dim_desc）、最多显示 `options.limit`、显示开关。修改即时生效，并以 `{type:'widgetEdit', widget, patch}` 通知外壳写回 spec。

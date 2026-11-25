@@ -9,14 +9,18 @@ import { Permissions } from "./Permissions";
 import { Extensions } from "./Extensions";
 import { Retrieval } from "./Retrieval";
 import { FileChartColumn, Mail, X } from "lucide-react";
-import { openPath } from "../../native";
+import { reveal } from "../../native";
 import { openExternal } from "../links";
 import { IconBtn } from "../ui";
+import { ChangelogModal } from "../Changelog";
+import { Markdown } from "../Markdown";
 
 function About() {
   const [a, setA] = useState<any>();
   const [v, setV] = useState<any>();
   const [copied, setCopied] = useState(false);
+  const [cl, setCl] = useState(false);
+  const [docView, setDocView] = useState<{ key: string; title: string } | null>(null);
   useEffect(() => {
     core.request("app/about").then(setA).catch(() => {});
     core.request("initialize").then(setV).catch(() => {});
@@ -45,8 +49,9 @@ function About() {
           <h2>DataPilot</h2>
           <div className="muted">{L("用自然语言分析数据、生成 BI 看板的桌面 Agent", "A desktop agent for natural-language data analysis and BI dashboards")}</div>
           <div className="row small">
-            <span className="mono">{L("版本 ", "Version ")}{ver}</span>
+            <span>{L("版本 ", "Version ")}{ver}</span>
             <button className="link" onClick={() => { navigator.clipboard.writeText(`DataPilot ${ver} · ${os}`); setCopied(true); }}>{copied ? L("已复制", "Copied") : L("复制", "Copy")}</button>
+            <button className="link" onClick={() => setCl(true)}>{L("更新日志", "Changelog")}</button>
             <span className="muted">· {L("协议", "protocol")} {v?.protocol ?? "…"} · {v?.tools?.length ?? 0} {L("个工具", "tools")}</span>
           </div>
         </div>
@@ -56,20 +61,34 @@ function About() {
         <div>{L("DataPilot 以 Apache License 2.0 发布。", "DataPilot is released under the Apache License 2.0.")}</div>
         {c && <div className="muted small">{L(c.usage_zh, c.usage_en)}</div>}
         <div className="row wrap">
-          <button disabled={!doc("license")} onClick={() => openPath(doc("license"))}>{L("查看许可全文", "View License")}</button>
-          <button disabled={!doc("notices")} onClick={() => openPath(doc("notices"))}>{L("查看完整第三方声明", "View Third-Party Notices")}</button>
-          <button disabled={!doc("chat2db")} onClick={() => openPath(doc("chat2db"))}>{L("Chat2DB 许可", "Chat2DB License")}</button>
+          {([["license", L("查看许可全文", "View License")], ["notices", L("查看完整第三方声明", "View Third-Party Notices")]] as const).map(([k, t]) =>
+            <button key={k} disabled={!a?.doc_text?.[k] && !doc(k)} onClick={() => setDocView({ key: k, title: t })}>{t}</button>)}
         </div>
       </section>
       {c?.code && section(L("致谢：包含或改编了以下项目的代码", "Thanks — includes or adapts code from"), c.code)}
       {c?.concepts && section(L("致谢：借鉴了以下项目的设计思路", "Thanks — design ideas from"), c.concepts)}
       <section>
         <h4>{L("联系我们", "Contact")}</h4>
-        <div className="row"><span className="grow mono">{contact}</span>
+        <div className="row"><span className="grow">{contact}</span>
           <button onClick={() => openExternal(`mailto:${contact}?subject=${encodeURIComponent(`DataPilot ${ver} 反馈 / Feedback`)}&body=${encodeURIComponent(`\n\n---\nDataPilot ${ver}\n${os}\n`)}`)}>
             <Mail size={14} /> {L("写邮件反馈", "Send Feedback")}</button></div>
       </section>
       {c?.copyright && <div className="muted small">{c.copyright}</div>}
+      {docView && (
+        <div className="modal" onClick={() => setDocView(null)}>
+          <div className="modalbox docbox" onClick={(e) => e.stopPropagation()}>
+            <div className="row"><h3 className="grow">{docView.title}</h3><IconBtn icon={X} title={L("关闭", "Close")} onClick={() => setDocView(null)} /></div>
+            <div className="docbody">
+              {!a?.doc_text?.[docView.key] ? <div className="muted">{L("文件读取失败", "Could not read the file")}</div>
+                : docView.key === "notices" ? <Markdown text={a.doc_text.notices} /> : <pre className="doctext">{a.doc_text[docView.key]}</pre>}
+            </div>
+            <div className="row"><span className="muted small grow ell" title={doc(docView.key)}>{doc(docView.key)}</span>
+              {doc(docView.key) && <button onClick={() => reveal(doc(docView.key)).catch((e) => alert(String(e)))}>{os === "Windows" ? L("在资源管理器中显示", "Show in Explorer") : L("在访达中显示", "Show in Finder")}</button>}
+              <button className="primary" onClick={() => setDocView(null)}>{L("关闭", "Close")}</button></div>
+          </div>
+        </div>
+      )}
+      {cl && <ChangelogModal releases={a?.changelog ?? []} current={ver} onClose={() => setCl(false)} />}
     </div>
   );
 }

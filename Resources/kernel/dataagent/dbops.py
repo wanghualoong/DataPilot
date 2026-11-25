@@ -1,8 +1,7 @@
 """Engine ops for direct database connections, saved queries, SQL format / EXPLAIN and result paging.
 
 Mixed into `Engine` (engine.py). Connection definitions live in <workspace>/connections.json WITHOUT passwords;
-the app injects `password` per request from the keychain. Ideas (connection form fields, metadata reading, read-only
-auto-execution, saved console queries) adapted from Chat2DB Community v5.3.8 (LicenseRef-Chat2DB).
+the app injects `password` per request from the keychain.
 """
 import json
 import os

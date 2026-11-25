@@ -37,7 +37,7 @@ writeFileSync(join(support, "config.json"), JSON.stringify({
 
 run(py, ["-I", join(repo, "scripts/golden_llm_server.py"), String(llmPort), casePath]);
 const token = "e2e" + Date.now();
-const bridge = run("node", [join(app, "dev-bridge.mjs"), "--port", String(bridgePort), "--app-support", support], { env: { ...process.env, DP_BRIDGE_TOKEN: token } });
+const bridge = run("node", [join(app, "dev-bridge.mjs"), "--port", String(bridgePort), "--app-support", support], { env: { ...process.env, DP_BRIDGE_TOKEN: token, DP_NO_LOCAL_DEFAULTS: "1" } });   // neutral defaults.json only
 await waitLine(bridge, /bridge ready/);
 const vite = run(join(app, "node_modules/.bin/vite"), ["--port", String(vitePort), "--strictPort"], { cwd: app });
 await waitLine(vite, /Local:/);
@@ -210,6 +210,55 @@ try {
     await page.locator(".popmenu .mi").filter({ hasText: "设置…" }).click();
     await page.locator(".modalbox.settings").waitFor({ timeout: 5000 });
     check(await page.locator(".settings .split .irow").filter({ hasText: "golden" }).count() > 0, "设置·模型服务列表");
+    // weekly local-model sync: a "*local" model the gateway no longer serves is removed by 立即检查
+    {
+      const fs = await import("node:fs");
+      const cf = JSON.parse(fs.readFileSync(join(support, "config.json"), "utf8"));
+      cf.modelCache.golden = ["golden-model", "gone-local"];
+      cf.settings.localModelSyncHosts = [`127.0.0.1:${llmPort}`];   // the golden server as a sync gateway (neutral default: none)
+      fs.writeFileSync(join(support, "config.json"), JSON.stringify(cf));
+      await page.locator(".settings .seg button").filter({ hasText: "通用" }).click();
+      await page.locator(".settings .seg button").filter({ hasText: "模型服务" }).click();
+      await page.locator(".settings .localsync").waitFor({ timeout: 5000 });
+      await page.locator(".settings .localsync").getByRole("button", { name: "立即检查" }).click();
+      await page.locator(".settings .localsync").getByText(/移除 gone-local/).waitFor({ timeout: 15000 });
+      const after = JSON.parse(fs.readFileSync(join(support, "config.json"), "utf8"));
+      check(JSON.stringify(after.modelCache.golden) === JSON.stringify(["golden-model"]) && after.localModelSync?.golden?.ok === true
+        && (await page.locator(".banner").innerText().catch(() => "")).includes("gone-local"), "设置·本地模型同步（移除已下线的 local 模型并提示）");
+      await page.locator(".settings .localsync label.switch").click();
+      await sleep(800);
+      check(JSON.parse(fs.readFileSync(join(support, "config.json"), "utf8")).settings?.localModelAutoSync === false, "设置·本地模型每周同步开关写入 config.json");
+      // 通用 → 同步网关: shows the configured list; 恢复默认 removes the key (neutral defaults: no gateway)
+      await page.locator(".settings .seg button").filter({ hasText: "通用" }).click();
+      const ta = page.locator(".settings .synchosts textarea");
+      await ta.waitFor({ timeout: 5000 });
+      const shown = await ta.inputValue();
+      await page.locator(".settings .synchosts").getByRole("button", { name: "恢复默认" }).click();
+      await sleep(800);
+      const cf2 = JSON.parse(fs.readFileSync(join(support, "config.json"), "utf8"));
+      check(shown.includes(`127.0.0.1:${llmPort}`) && cf2.settings?.localModelSyncHosts === undefined
+        && (await ta.inputValue()) === "", "设置·同步网关列表（显示配置值，恢复默认为不同步）");
+      // 通用 → 文档识别: no default server (neutral defaults); editing writes settings.docParse; 恢复默认 removes it
+      {
+        const dp = page.locator(".settings .docparse");
+        const srv = dp.locator("input.dpserver");
+        const def = await srv.inputValue();
+        await srv.fill("http://127.0.0.1:1");
+        await srv.blur();
+        await sleep(800);
+        const c3 = JSON.parse(fs.readFileSync(join(support, "config.json"), "utf8"));
+        await dp.getByRole("button", { name: "测试连接" }).click();
+        await dp.locator(".status").filter({ hasText: /连接失败|refused|错误|error/i }).waitFor({ timeout: 20000 });
+        await dp.getByRole("button", { name: "恢复默认" }).click();
+        await sleep(800);
+        const c4 = JSON.parse(fs.readFileSync(join(support, "config.json"), "utf8"));
+        check(def === "" && c3.settings?.docParse?.server === "http://127.0.0.1:1" && c3.settings.docParse.primaryTier === "advanced"
+          && c4.settings?.docParse === undefined && (await srv.inputValue()) === def, "设置·文档识别（默认无服务器、修改写入、测试连接报错、恢复默认）");
+      }
+      await page.locator(".settings .seg button").filter({ hasText: "模型服务" }).click();
+      await page.locator(".settings .localsync").waitFor({ state: "detached", timeout: 5000 });
+      check(true, "设置·非同步网关的服务不显示同步面板");
+    }
     await page.locator(".settings .seg button").filter({ hasText: "权限" }).click();
     await page.locator(".settings input[placeholder^='web_fetch']").fill("web_fetch(domain:example.com)");
     await page.locator(".settings").getByRole("button", { name: "添加" }).click();
@@ -244,6 +293,14 @@ try {
     await page.locator(".settings .seg button").filter({ hasText: "关于" }).click();
     await page.locator(".settings").getByText(/写邮件反馈/).waitFor({ timeout: 5000 });
     check(true, "设置·扩展 / 关于");
+    await page.locator(".settings").getByRole("button", { name: "更新日志" }).click();
+    await page.locator(".changelogbox .clrel").first().waitFor({ timeout: 5000 });
+    check((await page.locator(".changelogbox .clrel").count()) >= 2 && (await page.locator(".changelogbox .clgroup li").count()) > 0, "关于·更新日志（版本列表 + 当前版本展开）");
+    await page.locator(".changelogbox").getByRole("button", { name: "知道了" }).click();
+    await page.getByRole("button", { name: "查看完整第三方声明" }).click();
+    await page.waitForSelector(".docbox .docbody .md", { timeout: 5000 }).catch(() => {});
+    check((await page.locator(".docbox .docbody").innerText()).includes("THIRD") || (await page.locator(".docbox .docbody h1, .docbox .docbody h2").count()) > 0, "关于·第三方声明在应用内显示");
+    await page.locator(".docbox").getByRole("button", { name: "关闭" }).last().click();
     await page.locator(".modalbox.settings").getByRole("button", { name: "关闭" }).click();
     // /fork: copy of this chat becomes the selected session with the same history
     const before = await page.locator(".srow").count();

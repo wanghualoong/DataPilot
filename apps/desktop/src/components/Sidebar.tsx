@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { imeEnter } from "../ime";
 import {
   Archive, ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, FolderSync, FolderX, Info, KeyRound, LoaderCircle, Lock,
   MessageSquare, Monitor, Moon, PanelLeftClose, Sun, Plus, Pencil, Pin, PinOff, Search, Settings as Gear, SquarePen, Trash2, X,
@@ -49,7 +50,7 @@ function Row({ s, indent }: { s: SessionInfo; indent: boolean }) {
         {editing ? (
           <input autoFocus defaultValue={title} onClick={(e) => e.stopPropagation()}
             onBlur={(e) => { setEditing(false); if (e.target.value.trim()) rename(s.id, e.target.value.trim()); }}
-            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setEditing(false); }} />
+            onKeyDown={(e) => { if (imeEnter(e)) return; if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setEditing(false); }} />
         ) : (
           <span className="stitle">{s.pinned && <Pin size={10} className="muted pinmark" />}{title}</span>
         )}
@@ -149,12 +150,12 @@ function Footer({ openSettings }: { openSettings: (tab?: string) => void }) {
 }
 
 export function Sidebar({ width }: { width: number }) {
-  const { sessions, projects, newChat, openProject, search, setSearch, hits, settingsTab, openSettings } = useApp();
+  const { sessions, projects, newChat, requestProject, search, setSearch, hits, settingsTab, openSettings } = useApp();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => JSON.parse(localStorage.getItem("dp.collapsed") || "{}"));
   useEffect(() => { localStorage.setItem("dp.collapsed", JSON.stringify(collapsed)); }, [collapsed]);
   const visible = useMemo(() => (hits ? sessions.filter((s) => hits.has(s.id)) : sessions), [sessions, hits]);
   const loose = visible.filter((s) => !s.project_id);
-  const newProject = async () => { const p = await pickFolder(); if (p) openProject(p); };
+  const newProject = async () => { const p = await pickFolder(); if (p) requestProject(p); };
   const selected = useApp((s) => s.selected);
   const curPid = sessions.find((s) => s.id === selected)?.project_id;
   const curProject = curPid ? projects.find((p) => p.id === curPid) : undefined;

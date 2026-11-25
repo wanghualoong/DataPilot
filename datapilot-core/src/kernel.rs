@@ -40,6 +40,8 @@ struct Running {
     stderr: Arc<Mutex<String>>,
     ports: Vec<u16>,
     network: bool,
+    /// set by `shutdown` before it stops the process, so the reader can tell a planned stop from a crash (diagnostic log)
+    quitting: Arc<AtomicBool>,
 }
 
 pub struct KernelProcess {
@@ -88,17 +90,38 @@ impl KernelProcess {
 
     pub fn launched_ports(&self) -> Vec<u16> { self.run.lock().unwrap().as_ref().map(|r| r.ports.clone()).unwrap_or_default() }
 
+    /// Start the kernel. A start that fails because the sandbox denied the kernel its own folders (Windows: folders moved
+    /// in by a restore / copy with foreign or protected ACLs, OneDrive, another account's folder…) is retried after
+    /// `sandbox::recover` repaired the grants or, failing that, turned isolation off for this workspace.
     fn launch(&self) -> Result<Running, String> {
-        std::fs::create_dir_all(&self.workspace).map_err(|e| e.to_string())?;
+        let mut attempt = 0;
+        loop {
+            match self.launch_once() {
+                Ok(r) => return Ok(r),
+                Err((msg, Some((policy, err)))) if attempt < 2 && sandbox::denied(&err) && sandbox::recover(&policy, &err, attempt) => {
+                    crate::log::warn("kernel_retry", "", &[("attempt", (attempt + 1).to_string()), ("why", crate::log::err_text(&msg))]);
+                    attempt += 1;
+                }
+                Err((msg, _)) => return Err(msg),
+            }
+        }
+    }
+
+    /// One start. Err carries the policy and stderr when the kernel itself failed (for `launch` to judge a retry).
+    fn launch_once(&self) -> Result<Running, (String, Option<(sandbox::Policy, String)>)> {
+        let plain = |e: String| (e, None);
+        std::fs::create_dir_all(&self.workspace).map_err(|e| plain(e.to_string()))?;
         let tmp = if self.project_root.is_some() { self.workspace.join("tmp") } else { self.workspace.parent().unwrap_or(&self.workspace).join("tmp") };
-        std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&tmp).map_err(|e| plain(e.to_string()))?;
         if let Some(o) = &self.output_dir { let _ = std::fs::create_dir_all(o); }
         let network = self.network();
         let ports = db_ports(&self.workspace);
         let policy = sandbox::Policy { workspace: self.workspace.clone(), tmp, paths: self.paths.clone(), network,
                                        read_roots: self.project_root.iter().cloned().collect(), write_roots: self.output_dir.iter().cloned().collect(),
                                        db_ports: ports.clone() };
-        let cmd = vec![self.paths.python().display().to_string(), "-I".into(), "-u".into(), self.paths.kernel_script().display().to_string()];
+        // `-X utf8`: -I ignores PYTHONIOENCODING / PYTHONUTF8, and on Chinese Windows stdio would otherwise be GBK (the reader
+        // expects UTF-8; one GBK reply used to end the reader and the kernel looked "exited")
+        let cmd = vec![self.paths.python().display().to_string(), "-I".into(), "-X".into(), "utf8".into(), "-u".into(), self.paths.kernel_script().display().to_string()];
         let mut env = policy.env();
         env.push(("DP_SMALL_ROWS".into(), self.small_rows.load(Ordering::SeqCst).to_string()));
         if let Some(r) = &self.project_root {
@@ -108,15 +131,15 @@ impl KernelProcess {
             if let Some(o) = &self.output_dir { env.push(("DP_OUTPUT_DIR".into(), real(o).display().to_string())); }
         }
         let sp = sandbox::spawn(&policy, &cmd, &env, self.project_root.as_ref().unwrap_or(&self.workspace), true)
-            .map_err(|e| format!("cannot start kernel: {e}"))?;
+            .map_err(|e| plain(format!("cannot start kernel: {e}")))?;
         let mut child = sp.proc;
-        let stdin = sp.stdin.ok_or("no stdin")?;
+        let stdin = sp.stdin.ok_or_else(|| plain("no stdin".into()))?;
         let stdout = sp.stdout;
         let mut stderr_pipe = sp.stderr;
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
         let alive = Arc::new(AtomicBool::new(true));
         let stderr = Arc::new(Mutex::new(String::new()));
-        {
+        let stderr_done = {
             let stderr = stderr.clone();
             std::thread::spawn(move || {
                 let mut buf = [0u8; 4096];
@@ -126,17 +149,29 @@ impl KernelProcess {
                     s.push_str(&String::from_utf8_lossy(&buf[..n]));
                     if s.len() > 20000 { let cut = s.len() - 10000; let keep = s[s.ceil_char_boundary(cut)..].to_string(); *s = keep; }
                 }
-            });
-        }
+            })
+        };
         let (ready_tx, ready_rx) = channel::<Value>();
+        let quitting = Arc::new(AtomicBool::new(false));
+        let launched = Instant::now();
+        let label = self.workspace.parent().filter(|_| self.project_root.is_none()).unwrap_or(&self.workspace)
+            .file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         {
             let pending = pending.clone();
             let alive = alive.clone();
             let stderr = stderr.clone();
+            let quitting = quitting.clone();
+            let label = label.clone();
             std::thread::spawn(move || {
                 let mut ready = Some(ready_tx);
-                for line in BufReader::new(stdout).lines() {
-                    let Ok(line) = line else { break };
+                let mut rd = BufReader::new(stdout);
+                let mut raw = Vec::new();
+                loop {
+                    raw.clear();
+                    match rd.read_until(b'\n', &mut raw) { Ok(0) | Err(_) => break, Ok(_) => {} }
+                    // never stop on a bad byte sequence: decode lossily (a reply with invalid UTF-8 still finds its caller)
+                    let line = String::from_utf8_lossy(&raw).trim_end_matches(['\r', '\n']).to_string();
+                    if line.is_empty() { continue; }
                     let v = match serde_json::from_str::<Value>(&line) {
                         Ok(v) => v,
                         Err(e) => match line.strip_prefix("{\"id\": \"").and_then(|r| r.split('"').next()) {
@@ -152,16 +187,33 @@ impl KernelProcess {
                 let err = stderr.lock().unwrap().clone();
                 let tail: String = err.chars().rev().take(2000).collect::<Vec<_>>().into_iter().rev().collect();
                 let msg = if tail.is_empty() { "kernel exited".to_string() } else { format!("kernel exited: {tail}") };
+                if !quitting.load(Ordering::SeqCst) {
+                    let n = pending.lock().unwrap().len();
+                    crate::log::warn("kernel_exit", "", &[("ws", label), ("uptime_s", launched.elapsed().as_secs().to_string()),
+                                                          ("pending", n.to_string()), ("stderr", crate::log::err_text(&tail))]);
+                }
                 for (_, tx) in pending.lock().unwrap().drain() { let _ = tx.send(json!({"ok": false, "error": msg, "exited": true})); }
             });
         }
         match ready_rx.recv_timeout(self.ready_timeout) {
-            Ok(_) => Ok(Running { child, stdin, pending, alive, stderr, ports, network }),
-            Err(_) => {
+            Ok(_) => {
+                crate::log::info("kernel_start", "", &[("ws", label), ("ms", launched.elapsed().as_millis().to_string()), ("network", (network as u8).to_string())]);
+                Ok(Running { child, stdin, pending, alive, stderr, ports, network, quitting })
+            }
+            Err(e) => {
+                quitting.store(true, Ordering::SeqCst);
                 child.kill(); child.wait();
+                // the process is gone: wait for the rest of its stderr (the traceback) before judging it
+                let t = Instant::now();
+                while !stderr_done.is_finished() && t.elapsed() < Duration::from_secs(3) { std::thread::sleep(Duration::from_millis(20)); }
                 let err = stderr.lock().unwrap().clone();
-                Err(format!("Kernel not running: kernel did not become ready within {}s{}", self.ready_timeout.as_secs(),
-                            if err.is_empty() { String::new() } else { format!(": {}", crate::text::prefix(&err, 1500)) }))
+                let exited = matches!(e, RecvTimeoutError::Disconnected);
+                crate::log::error("kernel_ready_timeout", "", &[("ws", label), ("secs", launched.elapsed().as_secs().to_string()), ("exited", (exited as u8).to_string()),
+                                                                 ("stderr", crate::log::err_text(&err))]);
+                let head = if exited { "Kernel not running: kernel exited during startup".to_string() }
+                           else { format!("Kernel not running: kernel did not become ready within {}s", self.ready_timeout.as_secs()) };
+                let msg = format!("{head}{}", if err.is_empty() { String::new() } else { format!(": {}", crate::text::prefix(&err, 1500)) });
+                Err((msg, Some((policy, err))))
             }
         }
     }
@@ -169,7 +221,7 @@ impl KernelProcess {
     pub fn ensure_started(&self) -> Result<(), String> {
         let mut g = self.run.lock().unwrap();
         if let Some(r) = g.as_ref() { if r.alive.load(Ordering::SeqCst) { return Ok(()); } }
-        if let Some(mut old) = g.take() { old.child.kill(); old.child.wait(); }
+        if let Some(mut old) = g.take() { old.quitting.store(true, Ordering::SeqCst); old.child.kill(); old.child.wait(); }
         *g = Some(self.launch()?);
         Ok(())
     }
@@ -231,6 +283,7 @@ impl KernelProcess {
                     }
                     Err(_) => {
                         pending.lock().unwrap().remove(&id);
+                        crate::log::warn("kernel_restart", "", &[("op", op.to_string()), ("reason", "timeout_uninterruptible".into()), ("secs", timeout.as_secs().to_string())]);
                         self.shutdown();
                         return Err(format!("Kernel timeout after {}s; the step could not be interrupted, so the kernel was restarted", timeout.as_secs()));
                     }
@@ -290,6 +343,7 @@ impl KernelProcess {
 
     pub fn shutdown(&self) {
         let Some(mut r) = self.run.lock().unwrap().take() else { return };
+        r.quitting.store(true, Ordering::SeqCst);
         if r.alive.load(Ordering::SeqCst) {
             let _ = r.stdin.write_all(b"{\"id\":\"_bye\",\"op\":\"shutdown\"}\n");
             let _ = r.stdin.flush();

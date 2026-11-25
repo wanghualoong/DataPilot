@@ -203,8 +203,9 @@ def apply_mapping(df, columns=None, types=None):
 
 
 def import_file(con, path, table=None, header_row=None, sheet=None, mode="replace", small_rows=SMALL_ROWS_DEFAULT,
-                columns=None, types=None, dry_run=False):
-    """Import file into DuckDB tables. Returns list of table infos. dry_run: parse + map only (preview)."""
+                columns=None, types=None, dry_run=False, ocr=None):
+    """Import file into DuckDB tables. Returns list of table infos. dry_run: parse + map only (preview).
+    `ocr`: scanned-page results from the core (scanned PDFs / images, see ocr.py)."""
     keep_text = {c for c, t in (types or {}).items() if str(t).lower() in ("text", "string", "str", "varchar", "文本", "字符串")}
     ext = os.path.splitext(path)[1].lower()
     stem = table_name_from(os.path.splitext(os.path.basename(path))[0])
@@ -228,9 +229,11 @@ def import_file(con, path, table=None, header_row=None, sheet=None, mode="replac
     elif ext in (".json", ".jsonl", ".ndjson"):
         df = pd.read_json(path, lines=ext != ".json")
         frames[table or stem] = (_finalize_df(df), {})
-    elif ext in (".docx", ".pdf", ".pptx"):
+    elif ext in (".docx", ".pdf", ".pptx") or (ocr and ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")):
         from . import office
-        ts = office.tables(path)
+        if ocr and ocr.get("unavailable"):
+            raise ValueError(f"{os.path.basename(path)} 是扫描件 / 图片，文档识别不可用：{ocr['unavailable']}")
+        ts = office.tables(path, ocr)
         if not ts:
             raise ValueError(f"No tables found in {os.path.basename(path)}. Use read_file to read its text instead.")
         for i, t in enumerate(ts, 1):

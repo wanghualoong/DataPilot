@@ -91,7 +91,7 @@ function Skills() {
     <section>
       <h4>Skills</h4>
       <label className="small row"><input type="checkbox" checked={s.externalSkillsEnabled ?? true} onChange={(e) => patch({ settings: { externalSkillsEnabled: e.target.checked } })} /> {L("加载 Codex / Claude Code 的 skills（只读）", "Load Codex / Claude Code skills (read-only)")}</label>
-      {dirs.map((d, i) => <div key={d} className="irow small"><span className="grow mono">{d}</span>
+      {dirs.map((d, i) => <div key={d} className="irow small"><span className="grow">{d}</span>
         {found(i) !== undefined && <span className="muted" >{found(i) ? L("存在", "found") : L("不存在", "missing")}</span>}<IconBtn icon={X} size={13} className="danger" title={L("删除", "Remove")} onClick={() => patch({ settings: { externalSkillDirs: dirs.filter((x) => x !== d) } })} /></div>)}
       <div className="row"><input placeholder="~/path/to/skills" value={dir} onChange={(e) => setDir(e.target.value)} /><button disabled={!dir.trim()} onClick={() => { patch({ settings: { externalSkillDirs: [...dirs, dir.trim()] } }); setDir(""); }}>{L("添加目录", "Add folder")}</button></div>
       <div className="muted small">{L(`共 ${skills.length} 个 skills：`, `${skills.length} skills: `)}{bySource}{L("；在输入框里用 /名称 调用。", "; invoke with /name.")}</div>
@@ -111,7 +111,7 @@ function Browser() {
       <label className="fld"><span>{L("允许访问的域名（逗号分隔；留空表示不限）", "Allowed domains (comma separated; empty = any)")}</span>
         <input value={t} placeholder="example.com, *.gov.cn" onChange={(e) => setT(e.target.value)}
           onBlur={() => patch({ settings: { browserAllowedDomains: t.split(/[,\s]+/).map((x: string) => x.trim()).filter(Boolean) } })} /></label>
-      <div className="muted small">{L("浏览器使用独立的数据存储（与日常使用的 Chrome 隔离），登录状态会保留。表单输入需要审批。", "The browser uses an isolated data store (separate from your everyday Chrome); logins persist. Typing into forms requires approval.")}</div>
+      <div className="muted small">{L("browser 工具会打开一个 DataPilot 专用的 Chrome 窗口（独立配置，与日常使用的 Chrome 隔离），每一步都能看到，登录状态会保留。需要登录时由你自己在窗口里输入密码，Agent 不会填写密码框。表单输入、按键需要审批；下载的文件保存到对话工作区的 downloads/。", "The browser tool opens DataPilot's own Chrome window (separate profile from your everyday Chrome); you see every step and logins persist. You type passwords yourself — the agent never fills password fields. Typing / key presses need approval; downloads go to the chat workspace's downloads/.")}</div>
     </section>
   );
 }

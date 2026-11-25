@@ -53,6 +53,8 @@ class Core(base.Core):
             elif t == "turn_finished":
                 rec["reason"] = e["reason"]; break
         rec["answer"] = "\n".join(texts)
+        # the answer = last substantial message (a short trailing line like "上图为…" is not the answer)
+        rec["final"] = next((t for t in reversed(texts) if len(t) >= 120), texts[-1] if texts else "")
         return rec
 
 

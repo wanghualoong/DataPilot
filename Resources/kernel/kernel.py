@@ -19,6 +19,15 @@ Concurrency (a project kernel is shared by all chats of the project):
 import collections, ctypes, io, json, os, sys, threading, time, traceback
 
 WORKSPACE = os.environ.get("DP_WORKSPACE") or os.getcwd()
+# matplotlib: our rc file (Agg, Chinese fonts) unless the environment points elsewhere
+os.environ.setdefault("MATPLOTLIBRC", os.path.join(os.path.dirname(os.path.abspath(__file__)), "matplotlibrc"))
+import logging  # noqa: E402
+logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
+# library deprecation / future notices (pandas' "default engine for reading 'xlsx' will change…" on every read_excel)
+# fill tool outputs and distract models; real problems still raise or show as other warnings
+import warnings  # noqa: E402
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)   # "findfont: … weight" noise on stderr
 os.chdir(os.environ.get("DP_CWD") or WORKSPACE)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,6 +36,12 @@ from dataagent.util import clip, json_default  # noqa: E402
 engine.clip = clip
 engine.json_default = json_default
 
+# protocol streams are UTF-8 whatever the system code page (Chinese Windows: GBK); the core decodes UTF-8
+for _s in (sys.stdin, sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace" if _s is not sys.stdout else "strict")
+    except Exception:  # noqa: BLE001
+        pass
 _real_stdout = sys.stdout
 _real_stderr = sys.stderr
 _out_lock = threading.Lock()

@@ -1,6 +1,7 @@
 //! Headless Chrome over the DevTools Protocol (port of Swift `ChromeLocator` / `ChromeCDP`).
 //! Minimal WebSocket client on std `TcpStream` (DevTools listens on 127.0.0.1 only: no TLS, no proxy).
-//! One Chrome per process, isolated profile `AppSupport/chrome-profile`, started lazily, stopped after 10 idle minutes.
+//! Headless Chrome (web search / rendering): profile `AppSupport/chrome-profile`, started lazily, stopped after 10 idle
+//! minutes. Visible Chrome (browser tool): profile `AppSupport/browser-profile`, runs until the app quits.
 use base64::Engine as _;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -280,9 +281,17 @@ impl Ws {
 }
 
 // ---------- one tab ----------
-pub struct Page { ws: Ws, next: u64, port: u16, target: String }
+/// A JavaScript dialog (alert / confirm / prompt / beforeunload) opened while a command ran: the command is answered
+/// with this error and the dialog kept in `Page::dialog` until handled (Page.handleJavaScriptDialog).
+pub const DIALOG_OPEN: &str = "DIALOG_OPEN";
+
+pub struct Page { ws: Ws, next: u64, port: u16, target: String, close_on_drop: bool, pub dialog: Option<Value> }
 
 impl Page {
+    pub fn port(&self) -> u16 { self.port }
+    /// Page events on (needed to notice JavaScript dialogs).
+    pub fn enable_events(&mut self) -> Result<(), String> { self.send("Page.enable", json!({}), Duration::from_secs(10)).map(|_| ()) }
+    pub fn target(&self) -> &str { &self.target }
     pub fn send(&mut self, method: &str, params: Value, timeout: Duration) -> Result<Value, String> {
         self.next += 1;
         let id = self.next;
@@ -292,7 +301,14 @@ impl Page {
             let left = deadline.checked_duration_since(Instant::now()).ok_or_else(|| format!("CDP {method} timed out"))?;
             let t = self.ws.recv_text(left).map_err(|e| if e.contains("timed out") || e.contains("Resource temporarily") { format!("CDP {method} timed out") } else { e })?;
             let Ok(v) = serde_json::from_str::<Value>(&t) else { continue };
-            if v["id"].as_u64() != Some(id) { continue; } // events
+            if v["id"].as_u64() != Some(id) {   // events (dialogs only reported after `enable_events`)
+                match v["method"].as_str() {
+                    Some("Page.javascriptDialogOpening") => { self.dialog = Some(v["params"].clone()); return Err(DIALOG_OPEN.into()); }
+                    Some("Page.javascriptDialogClosed") => self.dialog = None,
+                    _ => {}
+                }
+                continue;
+            }
             if let Some(e) = v.get("error") { return Err(e["message"].as_str().map(String::from).unwrap_or_else(|| e.to_string())); }
             return Ok(v.get("result").cloned().unwrap_or(Value::Null));
         }
@@ -321,7 +337,7 @@ impl Page {
 
 impl Drop for Page {
     fn drop(&mut self) {
-        let _ = direct().get(&format!("http://127.0.0.1:{}/json/close/{}", self.port, self.target)).call();
+        if self.close_on_drop { let _ = direct().get(&format!("http://127.0.0.1:{}/json/close/{}", self.port, self.target)).call(); }
     }
 }
 
@@ -363,6 +379,25 @@ pub fn open_visible(url: &str, exe: &Path, app_support: &Path, proxy: &[String])
 
 pub fn profile_dir(app_support: &Path) -> PathBuf { app_support.join("chrome-profile") }
 
+fn read_port(f: &Path) -> Option<u16> { std::fs::read_to_string(f).ok().and_then(|s| s.lines().next().and_then(|l| l.trim().parse::<u16>().ok())) }
+
+/// Start Chrome with a DevTools port on `profile` and wait for its DevToolsActivePort file.
+fn spawn_debuggable(exe: &Path, profile: &Path, args: &[String]) -> Result<(Child, u16), String> {
+    std::fs::create_dir_all(profile).map_err(|e| e.to_string())?;
+    let port_file = profile.join("DevToolsActivePort");
+    let _ = std::fs::remove_file(&port_file);
+    let mut child = Command::new(exe).arg("--remote-debugging-port=0").arg(format!("--user-data-dir={}", profile.display())).args(args)
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+        .spawn().map_err(|e| format!("Chrome 启动失败：{e}"))?;
+    for _ in 0..150 {
+        if let Some(n) = read_port(&port_file) { return Ok((child, n)); }
+        if let Ok(Some(_)) = child.try_wait() { break; }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let _ = child.kill(); let _ = child.wait();
+    Err("Chrome 未能启动调试端口 / Chrome did not expose a DevTools port（可能有另一个 Chrome 正在使用同一个配置目录）".into())
+}
+
 fn ensure_started(exe: &Path, app_support: &Path, proxy: &[String]) -> Result<u16, String> {
     let mut g = STATE.lock().unwrap();
     if let Some(p) = g.as_mut() {
@@ -370,27 +405,15 @@ fn ensure_started(exe: &Path, app_support: &Path, proxy: &[String]) -> Result<u1
     }
     if let Some(mut old) = g.take() { let _ = old.child.kill(); let _ = old.child.wait(); }
     if verifying() { return Err("Google 人机验证窗口仍打开，请先完成验证并关闭该 Chrome 窗口 / captcha window still open".into()); }
-    let profile = profile_dir(app_support);
-    std::fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
-    let port_file = profile.join("DevToolsActivePort");
-    let _ = std::fs::remove_file(&port_file);
-    let mut child = Command::new(exe)
-        .args(["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--disable-blink-features=AutomationControlled",
-               "--disable-background-networking", "--remote-debugging-port=0", "--lang=zh-CN", "--window-size=1280,900"])
-        .arg(format!("--user-data-dir={}", profile.display())).arg(format!("--user-agent={}", user_agent(exe)))
-        .args(proxy).arg("about:blank").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-        .spawn().map_err(|e| format!("Chrome 启动失败：{e}"))?;
-    for _ in 0..100 {
-        if let Some(n) = std::fs::read_to_string(&port_file).ok().and_then(|s| s.lines().next().and_then(|l| l.trim().parse::<u16>().ok())) {
-            *g = Some(Proc { child, port: n, exe: exe.to_path_buf(), last: Instant::now() });
-            WATCHER.get_or_init(|| { std::thread::spawn(idle_watch); });
-            return Ok(n);
-        }
-        if let Ok(Some(_)) = child.try_wait() { break; }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    let _ = child.kill(); let _ = child.wait();
-    Err("Chrome 未能启动调试端口 / Chrome did not expose a DevTools port（可能有另一个 Chrome 正在使用同一个配置目录）".into())
+    let mut args: Vec<String> = ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--disable-blink-features=AutomationControlled",
+                                 "--disable-background-networking", "--lang=zh-CN", "--window-size=1280,900"].map(String::from).to_vec();
+    args.push(format!("--user-agent={}", user_agent(exe)));
+    args.extend(proxy.iter().cloned());
+    args.push("about:blank".into());
+    let (child, n) = spawn_debuggable(exe, &profile_dir(app_support), &args)?;
+    *g = Some(Proc { child, port: n, exe: exe.to_path_buf(), last: Instant::now() });
+    WATCHER.get_or_init(|| { std::thread::spawn(idle_watch); });
+    Ok(n)
 }
 
 fn idle_watch() {
@@ -414,6 +437,7 @@ pub fn shutdown() {
 /// App quit: also close a captcha window we opened.
 pub fn shutdown_all() {
     shutdown();
+    shutdown_visible();
     if let Some(mut c) = VERIFY.lock().unwrap().take() { let _ = c.kill(); let _ = c.wait(); }
 }
 
@@ -421,12 +445,117 @@ pub fn touch() { if let Some(p) = STATE.lock().unwrap().as_mut() { p.last = Inst
 
 pub fn open_tab(exe: &Path, app_support: &Path, proxy: &[String]) -> Result<Page, String> {
     let port = ensure_started(exe, app_support, proxy)?;
+    new_page(port, true)
+}
+
+fn new_page(port: u16, close_on_drop: bool) -> Result<Page, String> {
     let t: Value = direct().put(&format!("http://127.0.0.1:{port}/json/new?about:blank")).call()
         .map_err(|e| format!("CDP: cannot open a tab: {e}"))?.into_string().ok()
         .and_then(|t| serde_json::from_str(&t).ok()).ok_or("CDP: bad /json/new response")?;
     let ws = t["webSocketDebuggerUrl"].as_str().ok_or("CDP: no webSocketDebuggerUrl")?;
     let target = t["id"].as_str().unwrap_or("").to_string();
-    Ok(Page { ws: Ws::connect(ws, Duration::from_secs(20))?, next: 0, port, target })
+    Ok(Page { ws: Ws::connect(ws, Duration::from_secs(20))?, next: 0, port, target, close_on_drop, dialog: None })
+}
+
+// ---------- visible Chrome (browser tool, Codex-style) ----------
+/// The browser tool's own Chrome: a normal window the user watches and logs in to, on a dedicated profile
+/// (`AppSupport/browser-profile`, separate from the everyday Chrome — Chrome 136+ refuses DevTools on the default profile
+/// anyway). Runs until the app quits or the user closes it; never stopped for idleness (a login's session cookies would
+/// be lost). `child` is None for a window adopted from an earlier core process.
+struct Visible { child: Option<Child>, port: u16 }
+static VISIBLE: Mutex<Option<Visible>> = Mutex::new(None);
+
+/// Close the visible Chrome (tests; the app closes it via `shutdown_all`).
+pub fn shutdown_visible() {
+    *BROWSER_WS.lock().unwrap() = None;
+    if let Some(mut v) = VISIBLE.lock().unwrap().take() {
+        match v.child.as_mut() { Some(c) => { let _ = c.kill(); let _ = c.wait(); } None => { let _ = browser_call(v.port, "Browser.close", json!({})); } }
+    }
+}
+
+pub fn browser_profile_dir(app_support: &Path) -> PathBuf { app_support.join("browser-profile") }
+
+fn responds(port: u16) -> bool { direct().get(&format!("http://127.0.0.1:{port}/json/version")).call().is_ok() }
+
+/// DevTools port of the visible Chrome, starting it when needed.
+pub fn ensure_visible(exe: &Path, app_support: &Path, proxy: &[String]) -> Result<u16, String> {
+    let mut g = VISIBLE.lock().unwrap();
+    if let Some(v) = g.as_mut() {
+        let running = v.child.as_mut().map(|c| matches!(c.try_wait(), Ok(None))).unwrap_or(true);
+        if running && responds(v.port) { return Ok(v.port); }
+    }
+    if let Some(mut old) = g.take() { if let Some(c) = old.child.as_mut() { let _ = c.kill(); let _ = c.wait(); } }
+    let profile = browser_profile_dir(app_support);
+    // a window left by an earlier core process (restart / crash) still owns the profile: adopt it, logins included
+    if let Some(port) = read_port(&profile.join("DevToolsActivePort")).filter(|p| responds(*p)) {
+        *g = Some(Visible { child: None, port });
+        return Ok(port);
+    }
+    // no --disable-blink-features=AutomationControlled here: a visible Chrome shows an "unsupported command-line flag"
+    // warning bar for it (only the headless one uses it)
+    let mut args: Vec<String> = ["--no-first-run", "--no-default-browser-check", "--lang=zh-CN",
+                                 "--window-size=1280,900", "--hide-crash-restore-bubble",
+                                 // keep polling pages running while the window is behind others
+                                 "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows", "--disable-renderer-backgrounding"]
+        .map(String::from).to_vec();
+    args.extend(proxy.iter().cloned());
+    args.push("about:blank".into());
+    if cfg!(test) { args.insert(0, "--headless=new".into()); }   // live tests: no window on the developer's screen
+    let (child, port) = spawn_debuggable(exe, &profile, &args)?;
+    *g = Some(Visible { child: Some(child), port });
+    Ok(port)
+}
+
+fn list_raw(port: u16) -> Result<Vec<Value>, String> {
+    let t: Value = direct().get(&format!("http://127.0.0.1:{port}/json/list")).call().map_err(|e| format!("CDP: {e}"))?
+        .into_string().ok().and_then(|t| serde_json::from_str(&t).ok()).ok_or("CDP: bad /json/list response")?;
+    Ok(t.as_array().cloned().unwrap_or_default().into_iter()
+        .filter(|t| t["type"] == "page" && !t["url"].as_str().unwrap_or("").starts_with("devtools://")).collect())
+}
+
+/// Page tabs of a Chrome: (id, title, url).
+pub fn tabs(port: u16) -> Result<Vec<(String, String, String)>, String> {
+    let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+    Ok(list_raw(port)?.iter().map(|t| (s(&t["id"]), s(&t["title"]), s(&t["url"]))).collect())
+}
+
+/// A tab of the visible Chrome: a new one (None) or an existing target (tabs the page opened). Never closed on drop.
+pub fn visible_tab(port: u16, target: Option<&str>) -> Result<Page, String> {
+    let Some(id) = target else { return new_page(port, false) };
+    let ws = list_raw(port)?.into_iter().find(|t| t["id"] == id).and_then(|t| t["webSocketDebuggerUrl"].as_str().map(String::from))
+        .ok_or("该标签页已关闭 / tab is gone")?;
+    Ok(Page { ws: Ws::connect(&ws, Duration::from_secs(20))?, next: 0, port, target: id.to_string(), close_on_drop: false, dialog: None })
+}
+
+fn browser_conn(port: u16) -> Result<Page, String> {
+    let v: Value = direct().get(&format!("http://127.0.0.1:{port}/json/version")).call().map_err(|e| format!("CDP: {e}"))?
+        .into_string().ok().and_then(|t| serde_json::from_str(&t).ok()).ok_or("CDP: bad /json/version response")?;
+    let ws = v["webSocketDebuggerUrl"].as_str().ok_or("CDP: no browser webSocketDebuggerUrl")?;
+    Ok(Page { ws: Ws::connect(ws, Duration::from_secs(10))?, next: 0, port, target: String::new(), close_on_drop: false, dialog: None })
+}
+
+/// Browser-wide CDP command on a short-lived connection (Browser.close…).
+pub fn browser_call(port: u16, method: &str, params: Value) -> Result<Value, String> {
+    browser_conn(port)?.send(method, params, Duration::from_secs(10))
+}
+
+/// Browser-level connection to the visible Chrome, kept open: Browser.setDownloadBehavior lasts only as long as the
+/// connection that set it, and it covers every tab (also tabs the page opens, where report downloads often start).
+static BROWSER_WS: Mutex<Option<Page>> = Mutex::new(None);
+
+/// Downloads of the visible Chrome go to `dir` (re-sent before each action: the folder is per chat).
+pub fn set_download_dir(port: u16, dir: &Path) -> Result<(), String> {
+    let mut g = BROWSER_WS.lock().unwrap();
+    let params = json!({"behavior": "allow", "downloadPath": dir.to_string_lossy(), "eventsEnabled": false});
+    let mut last = String::new();
+    for _ in 0..2 {
+        if g.as_ref().map(|p| p.port != port).unwrap_or(true) { *g = Some(browser_conn(port)?); }
+        match g.as_mut().unwrap().send("Browser.setDownloadBehavior", params.clone(), Duration::from_secs(10)) {
+            Ok(_) => return Ok(()),
+            Err(e) => { last = e; *g = None; }   // connection lost (Chrome restarted): reconnect once
+        }
+    }
+    Err(last)
 }
 
 /// Opens `url`, waits until `ready_js` is truthy (or the timeout), returns (outerHTML, final URL).

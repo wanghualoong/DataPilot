@@ -8,12 +8,32 @@ import { Onboarding, QuickLogin } from "./components/Onboarding";
 import { Inspector } from "./components/Inspector";
 import { Resizer, useStored } from "./components/ui";
 import { L } from "./i18n";
+import { core } from "./transport";
+import { ChangelogModal, type Release } from "./components/Changelog";
+import { PageCompare } from "./components/PageCompare";
+import { TrustFolder } from "./components/TrustFolder";
+
+/** Something of DataPilot was stored here before this launch (read once, before any component writes): an upgrade, not a fresh install. */
+const EXISTING_USER = typeof localStorage !== "undefined" && Object.keys(localStorage).some((k) => k.startsWith("dp.") && k !== "dp.seenVersion");
 
 export function App() {
   const { init, ready, selected, error, notice, sidebarHidden, inspector, onboarding, quickLogin } = useApp();
   const [sideW, setSideW] = useStored("dp.sidebarWidth", 280);
   const [inspW, setInspW] = useStored("dp.inspectorWidth", 440);
   useEffect(() => { init(); }, [init]);
+  // after an upgrade (version differs from the last one seen on this machine): show that version's changelog once
+  const [whatsNew, setWhatsNew] = useState<{ version: string; releases: Release[] }>();
+  useEffect(() => {
+    if (!ready) return;
+    core.request("app/about").then((a: any) => {
+      const seen = localStorage.getItem("dp.seenVersion");
+      if (seen === a.version) return;
+      localStorage.setItem("dp.seenVersion", a.version);
+      // a fresh install (nothing stored on this machine yet) has nothing to compare with: only upgrades show it
+      if (!seen && !EXISTING_USER) return;
+      if ((a.changelog ?? []).some((r: Release) => r.version === a.version)) setWhatsNew({ version: a.version, releases: a.changelog });
+    }).catch(() => {});
+  }, [ready]);
   // global shortcuts (same as the SwiftUI menu commands)
   useEffect(() => {
     const k = (e: KeyboardEvent) => {
@@ -53,6 +73,9 @@ export function App() {
       </>}
       {onboarding && <Onboarding />}
       {quickLogin && <QuickLogin />}
+      <PageCompare />
+      <TrustFolder />
+      {whatsNew && !onboarding && <ChangelogModal upgraded releases={whatsNew.releases} current={whatsNew.version} onClose={() => setWhatsNew(undefined)} />}
     </div>
   );
 }

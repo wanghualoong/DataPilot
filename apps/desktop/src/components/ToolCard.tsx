@@ -10,6 +10,7 @@ import { useApp } from "../store";
 import { core } from "../transport";
 import { openPath, reveal } from "../native";
 import { openExternal } from "./links";
+import { OcrInfo } from "./PageCompare";
 import "./cards.css";
 
 // same icons as the SwiftUI ToolCallCard
@@ -173,6 +174,7 @@ export function ToolCard({ it }: { it: any }) {
       {d.kind === "python" && (d.images ?? []).map((p: string) => <PyImage key={p} path={p} />)}
       {d.kind === "search" && <SearchResults d={d} />}
       {d.kind === "file" && d.path && <FileOut d={d} />}
+      {d.ocr && <OcrInfo o={d.ocr} />}
       {d.kind === "subagent" && <div className="cap">{L(`${d.turns ?? 0} 轮 · ${(d.tools ?? []).length} 次工具调用`, `${d.turns ?? 0} turns · ${(d.tools ?? []).length} tool calls`) + (tools.length ? "：" + tools.join(", ") : "")}</div>}
       {d.kind === "dashboard" && d.id && (
         <button className="dashbtn small" onClick={() => useApp.getState().openInspector("dashboards", d.id)}><LayoutDashboard {...ic} size={13} />{L("打开看板：", "Open dashboard: ") + (d.title ?? "")}</button>

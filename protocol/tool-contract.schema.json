@@ -1,6 +1,6 @@
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "https://datapilot.dku/protocol/tool-contract.schema.json",
+ "$id": "https://github.com/wanghualoong/DataPilot/protocol/tool-contract.schema.json",
  "title": "ToolContract",
  "description": "Declarative tool contract shared by every core (Swift today, Rust later). protocol/tools.snapshot.json is generated from the registry and checked by tests.",
  "type": "object",

@@ -10,3 +10,5 @@ Resources/web/vendor/echarts.min.js
 tests/golden/out/
 datapilot-core/target/
 tests/eval/out/
+Resources/defaults.local.json
+docs-local/

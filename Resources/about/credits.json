@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
-  "usage_zh": "DataPilot 以 Apache License 2.0 开源。其中标注「Adapted from Chat2DB」的文件（改编自 Chat2DB v5.3.8）仍受 Chat2DB License 约束：源码可随该许可再分发，但包含这些文件的安装包未经 Chat2DB 书面授权不得分发给外部第三方，也不得作为对外服务提供。",
-  "usage_en": "Open source under the Apache License 2.0. Files marked 'Adapted from Chat2DB' (Chat2DB v5.3.8) remain under the Chat2DB License: source may be redistributed with it, but binaries including them may not be distributed to external parties or offered as an external service without Chat2DB's written authorization.",
+  "usage_zh": "DataPilot 以 Apache License 2.0 开源。",
+  "usage_en": "Open source under the Apache License 2.0.",
   "contact": "wanghualoong@126.com",
   "copyright": "© 2026 DataPilot",
   "code": [
@@ -11,13 +11,6 @@
       "license": "Apache-2.0",
       "use_zh": "Seatbelt 沙箱策略（改编）；审批模式、压缩、记忆与 Windows 沙箱设计",
       "use_en": "Seatbelt policy (adapted); approval, compaction, memory and Windows-sandbox design"
-    },
-    {
-      "name": "OtterMind/Chat2DB Community v5.3.8",
-      "url": "https://github.com/OtterMind/Chat2DB",
-      "license": "LicenseRef-Chat2DB",
-      "use_zh": "看板图表显示选项、导出单元格处理链、ER 图布局与虚拟外键（部分代码改编）；数据库连接字段、元数据读取与只读执行策略（改编）",
-      "use_en": "Chart display options, export cell-processor chain, ER layout & virtual FKs (partly adapted code); DB connection fields, metadata reading and read-only execution policy (adapted)"
     },
     {
       "name": "Apache ECharts",
@@ -118,6 +111,13 @@
       "license": "Apache-2.0",
       "use_zh": "Computer Use 动作定义",
       "use_en": "Computer-use action schema"
+    },
+    {
+      "name": "OtterMind/Chat2DB",
+      "url": "https://github.com/OtterMind/Chat2DB",
+      "license": "—",
+      "use_zh": "数据库连接表单、ER 图位置保存与手工连线、看板卡片编辑面板的思路（未使用其代码）",
+      "use_en": "Ideas for the DB connection form, stored ER layout with user-drawn edges and the card edit panel (no code used)"
     }
   ]
 }

@@ -1,4 +1,5 @@
 // Settings → General → 看板配色: default colour scheme for dashboards and chat charts (a dashboard can override it).
+import { imeEnter } from "../../ime";
 import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { L } from "../../i18n";
@@ -51,7 +52,7 @@ function CustomEditor({ cur, active }: { cur: unknown; active: boolean }) {
         </select>
         <input className="grow" placeholder={L("或粘贴颜色：#1f77b4, #ff7f0e …", "Or paste: #1f77b4, #ff7f0e …")} value={text}
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { const c = parseColors(text); if (c) { setColors(c.slice(0, MAX_CUSTOM)); setText(""); setMsg(undefined); } else setMsg("❌ " + L("请输入至少 2 个 #RRGGBB 颜色", "Enter at least 2 #RRGGBB colours")); } }} />
+          onKeyDown={(e) => { if (e.key === "Enter" && !imeEnter(e)) { const c = parseColors(text); if (c) { setColors(c.slice(0, MAX_CUSTOM)); setText(""); setMsg(undefined); } else setMsg("❌ " + L("请输入至少 2 个 #RRGGBB 颜色", "Enter at least 2 #RRGGBB colours")); } }} />
         <button className="primary" disabled={!dirty && active} onClick={apply}>{active && !dirty ? L("已应用", "Applied") : L("应用自定义", "Use custom")}</button>
       </div>
       <Status msg={msg} />

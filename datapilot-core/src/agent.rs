@@ -65,6 +65,15 @@ impl Core {
         ks.into_iter().filter(|(w, k)| !busy.contains(w) && k.reap_if_idle(secs)).count()
     }
 
+    /// Any kernel process alive (the weekly automatic backup waits until all are idle-stopped).
+    pub fn kernels_running(&self) -> bool { self.kernels.lock().unwrap().values().any(|k| k.is_running()) }
+
+    /// Stop every kernel (before a restore rewrites their files); the next call starts them again.
+    pub fn close_all_kernels(&self) {
+        let ks: Vec<Arc<KernelProcess>> = self.kernels.lock().unwrap().drain().map(|(_, k)| k).collect();
+        for k in ks { k.shutdown(); }
+    }
+
     /// Project removed from the app: stop its kernel and forget it.
     pub fn close_workspace(&self, workspace: &Path) -> bool {
         let k = self.kernels.lock().unwrap().remove(workspace);
@@ -218,7 +227,10 @@ impl Agent {
         if let Some(c) = prompt::skills_catalog(&prompt::skills_for(p, &self.shared.settings), budget) { parts.push(c); }
         if let Some(c) = crate::subagent::catalog(p, self.shared.project_root.as_deref()) { parts.push(c); }
         if let Some(i) = prompt::instruction_block(&p.app_support, self.shared.project_root.as_deref()) { parts.push(i); }
-        if s.memory_enabled { if let Some(r) = &self.shared.project_root { parts.push(prompt::project_memory_block(p, r)); } }
+        if s.memory_enabled {
+            if let Some(u) = prompt::user_memory_block(p) { parts.push(u); }
+            if let Some(r) = &self.shared.project_root { parts.push(prompt::project_memory_block(p, r)); }
+        }
         if mode == Mode::Plan { parts.push(prompt::prompt(p, "plan_mode")); }
         parts.join("\n\n")
     }
@@ -228,6 +240,10 @@ impl Agent {
         let mut specs: Vec<_> = self.registry.tools.iter()
             .filter(|t| t.name() != "computer" || self.shared.settings.computer_use_enabled) // off by default: not offered
             .filter(|t| mode != Mode::Plan || t.contract.plan_mode || t.name() == "exit_plan_mode").map(|t| t.spec()).collect();
+        // a model without image input gets nothing from screenshots: don't offer the browser's (each one wastes a round)
+        if !self.model.caps().supports_vision {
+            for s in specs.iter_mut().filter(|s| s.name == "browser") { without_screenshot(s); }
+        }
         if mode != Mode::Plan { specs.extend(crate::mcp::tools().iter().map(|t| t.spec())); }
         specs
     }
@@ -241,7 +257,7 @@ impl Agent {
         let system = estimate_tokens(&self.system_prompt(mode));
         let skills = tok(prompt::skills_catalog(&prompt::skills_for(p, st), 1500.max(window * 2 / 100 * 3)));
         let instr = tok(prompt::instruction_block(&p.app_support, self.shared.project_root.as_deref()));
-        let memory = if st.memory_enabled { tok(self.shared.project_root.as_ref().map(|r| prompt::project_memory_block(p, r))) } else { 0 };
+        let memory = if st.memory_enabled { tok(self.shared.project_root.as_ref().map(|r| prompt::project_memory_block(p, r))) + tok(prompt::user_memory_block(p)) } else { 0 };
         let mcp_names: HashSet<String> = crate::mcp::tools().iter().map(|t| t.name().to_string()).collect();
         let (mut builtin, mut mcp, mut n_tools) = (0usize, 0usize, 0usize);
         for t in self.tool_specs(mode) {
@@ -308,6 +324,18 @@ impl Agent {
         Some(format!("## 已验证的查询示例 / Verified examples（同一数据集上以前答对的问题；口径可参考，表名列名以当前 schema 为准）\n{body}"))
     }
 
+    /// User-layer preferences repeated next to the question every turn (weak models follow the system prompt's index
+    /// only loosely): one line per topic description, newest first, ≤ 1200 chars.
+    fn preferences_block(&self) -> Option<String> {
+        if !self.shared.settings.memory_enabled { return None; }
+        let ts = crate::memory::topics(&crate::memory::user_dir(&self.shared.paths.app_support), 20);
+        let lines: Vec<String> = ts.iter().filter(|t| matches!(t.kind.as_str(), "user" | "feedback"))
+            .map(|t| format!("- {}{}", text::prefix(&t.description.replace('\n', " "), 200),
+                             if t.body.contains("**状态：** pending") { "（推断，未确认）" } else { "" })).collect();
+        if lines.is_empty() { return None; }
+        Some(text::prefix(&format!("## 用户偏好 / User preferences（跨项目，本次回答必须遵守；与用户本次要求冲突时以本次为准；表格、明细里的数值也要遵守）\n{}", lines.join("\n")), 1200))
+    }
+
     /// Last turn's question → SQL pairs become verified unless this message corrects them.
     fn settle_pending_qsql(&self, user_text: &str) {
         let ids: Vec<i64> = std::mem::take(&mut *self.shared.pending_qsql.lock().unwrap());
@@ -334,6 +362,7 @@ impl Agent {
         if let Some(pb) = self.project_block() { ks = Some(pb + &ks.map(|k| format!("\n\n{k}")).unwrap_or_default()); }
         add(ks, 600);
         add(self.examples_block(question), 800);
+        add(self.preferences_block(), 400);
         if !self.notes.is_effectively_empty() {
             add(self.notes.text().map(|n| format!("## 会话笔记 / Session notes\n{n}")), 3000.min(total / 3));
         }
@@ -377,6 +406,10 @@ impl Agent {
         self.shared.computer_steps.store(0, std::sync::atomic::Ordering::SeqCst);
         *self.shared.model_caps.lock().unwrap() = Some(self.model.caps());
         emit(events::turn_started(&turn));
+        let turn_t0 = std::time::Instant::now();
+        let (mut llm_calls, mut tool_calls, mut slow) = (0usize, 0usize, 0usize);
+        crate::log::info("turn_start", &self.shared.id, &[("turn", turn.clone()), ("model", self.model.model.clone()),
+                                                           ("project", (self.shared.project_root.is_some() as u8).to_string())]);
         // non-project chats: workspace snapshot so `session/rewind` can restore files too (project data is shared)
         if self.shared.project_root.is_none() {
             if let Some(dir) = self.shared.transcript.parent() { crate::snapshots::take(dir, &self.shared.workspace, &turn); }
@@ -424,7 +457,7 @@ impl Agent {
         let reason = loop {
             if self.shared.cancelled() { break "cancelled"; }
             rounds += 1;
-            if rounds > max_turns { emit(events::notice(&format!("已达到最大轮数 {max_turns}，停止 / max turns reached"))); break "max_turns"; }
+            if rounds > max_turns { emit(events::notice(&max_turns_notice(max_turns))); break "max_turns"; }
             let mode = self.shared.perms.mode();
             let specs = self.tool_specs(mode);
             let system = self.system_prompt(mode);
@@ -435,12 +468,21 @@ impl Agent {
             let mut msgs = vec![ChatMessage::system(system)];
             msgs.extend(self.context.iter().cloned());
             let e2 = emit.clone();
-            let mut on = move |d: Delta| match d {
-                Delta::Content(s) => e2(events::assistant_delta(&s)),
-                Delta::Reasoning(s) => e2(events::reasoning_delta(&s)),
-                Delta::ToolCallStarted(i, n) => e2(events::tool_call_streaming(i, &n)),
+            let first = std::rc::Rc::new(std::cell::Cell::new(None::<std::time::Instant>));
+            let f2 = first.clone();
+            let mut on = move |d: Delta| {
+                if f2.get().is_none() { f2.set(Some(std::time::Instant::now())); }
+                match d {
+                    Delta::Content(s) => e2(events::assistant_delta(&s)),
+                    Delta::Reasoning(s) => e2(events::reasoning_delta(&s)),
+                    Delta::ToolCallStarted(i, n) => e2(events::tool_call_streaming(i, &n)),
+                }
             };
-            let result = match self.client.stream(&self.model, &msgs, &specs, &self.shared.broker.cancel, &mut on) {
+            let llm_t0 = std::time::Instant::now();
+            llm_calls += 1;
+            let streamed = self.client.stream(&self.model, &msgs, &specs, &self.shared.broker.cancel, &mut on);
+            slow += self.log_llm(&streamed, llm_t0, first.get());
+            let result = match streamed {
                 Ok(r) => r,
                 Err(LlmError::Cancelled) => break "cancelled",
                 Err(LlmError::ContextTooLong(b)) => {
@@ -493,21 +535,69 @@ impl Agent {
             }
             had_tools = true;
             self.notes.add_tool_calls(result.tool_calls.len());
+            // repeat hints go after the tool results: nothing may sit between tool_calls and their tool messages (HTTP 400)
+            let mut hints = vec![];
             for c in &result.tool_calls {
                 let n = sigs.entry(format!("{}{}", c.name, c.arguments)).or_insert(0);
                 *n += 1;
-                if *n >= 3 { self.append(ChatMessage::meta(format!("[系统提示] 你已经用相同参数调用 {} 3 次。请换一种方法，或向用户说明困难。", c.name), &turn)); }
+                if *n >= 3 { hints.push(format!("[系统提示] 你已经用相同参数调用 {} 3 次。请换一种方法，或向用户说明困难。", c.name)); }
             }
+            tool_calls += result.tool_calls.len();
             let outs = self.execute_tools(&result.tool_calls, &turn, emit);
             for m in outs { self.append(m); }
+            for h in hints { self.append(ChatMessage::meta(h, &turn)); }
             if self.shared.cancelled() { break "cancelled"; }
             self.deliver_interjections(&turn, emit);
         };
         // compaction asked for during the last round: do it now rather than at the start of the next turn
         if self.shared.compact_requested.swap(false, std::sync::atomic::Ordering::SeqCst) { self.compact(emit, true); }
         emit(events::turn_finished(&turn, reason));
+        let ms = turn_t0.elapsed().as_millis();
+        if ms > crate::log::SLOW_TURN_MS { slow += 1; }
+        let level = if reason == "error" || ms > crate::log::SLOW_TURN_MS { "WARN" } else { "INFO" };
+        let mut f = vec![("turn", turn.clone()), ("reason", reason.to_string()), ("ms", ms.to_string()), ("rounds", rounds.to_string()),
+                         ("llm", llm_calls.to_string()), ("tools", tool_calls.to_string())];
+        if slow > 0 { f.push(("slow", slow.to_string())); }
+        crate::log::log(level, "turn_end", &self.shared.id, &f);
         self.after_turn(had_tools, emit);
         reason.to_string()
+    }
+
+    /// Diagnostic log line for one model call; returns 1 when it counts as slow (TTFT over the threshold).
+    fn log_llm(&self, r: &Result<crate::llm::Completion, LlmError>, t0: std::time::Instant, first: Option<std::time::Instant>) -> usize {
+        let ms = t0.elapsed().as_millis();
+        let ttft = first.map(|f| f.duration_since(t0).as_millis());
+        let slow = ttft.map(|t| t > crate::log::SLOW_TTFT_MS).unwrap_or(ms > crate::log::SLOW_TTFT_MS);
+        let mut f = vec![("model", self.model.model.clone()), ("ms", ms.to_string()),
+                         ("ttft", ttft.map(|t| t.to_string()).unwrap_or_else(|| "-".into()))];
+        let level = match r {
+            Ok(c) => {
+                if let Some(u) = &c.usage { f.push(("in", u.prompt_tokens.to_string())); f.push(("out", u.completion_tokens.to_string())); }
+                f.push(("tool_calls", c.tool_calls.len().to_string()));
+                if let Some(x) = &c.finish { f.push(("finish", x.clone())); }
+                if slow { "WARN" } else { "INFO" }
+            }
+            Err(LlmError::Cancelled) => { f.push(("status", "cancelled".into())); "INFO" }
+            Err(e) => {
+                let kind = match e { LlmError::Http(c, _) => format!("http_{c}"), LlmError::ContextTooLong(_) => "context_too_long".into(),
+                                     LlmError::Bad(_) => "bad_reply".into(), LlmError::Net(_) => "network".into(),
+                                     LlmError::Cut { idle_secs, .. } => format!("cut_idle_{idle_secs}s"), LlmError::Cancelled => unreachable!() };
+                f.push(("status", kind)); f.push(("err", crate::log::err_text(&e.to_string())));
+                "WARN"
+            }
+        };
+        if slow { f.push(("slow", "ttft".into())); }
+        crate::log::log(level, "llm", &self.shared.id, &f);
+        slow as usize
+    }
+
+    /// Diagnostic log line for one tool call (name, duration, ok/fail, redacted error text only on failure).
+    fn log_tool(&self, name: &str, err: bool, ms: i64, text: &str) {
+        let slow = ms as u128 > crate::log::SLOW_TOOL_MS;
+        let mut f = vec![("name", name.to_string()), ("ms", ms.to_string()), ("ok", (!err as u8).to_string())];
+        if err { f.push(("err", crate::log::err_text(text))); }
+        if slow { f.push(("slow", "1".into())); }
+        crate::log::log(if err || slow { "WARN" } else { "INFO" }, "tool", &self.shared.id, &f);
     }
 
     /// Consecutive concurrency-safe calls run in parallel (max 10 at once), others serially; results keep call order.
@@ -541,6 +631,7 @@ impl Agent {
     pub fn execute_one(&self, call: &ToolCall, turn: &str, emit: &Emit) -> ChatMessage {
         let max = self.shared.settings.tool_output_max_chars;
         let reply = |text: &str, err: bool, display: Option<Value>, ms: i64| -> ChatMessage {
+            self.log_tool(&call.name, err, ms, text);
             let m = ChatMessage::tool(truncate_middle(text, max), &call.id, &call.name, turn);
             if let Some(d) = &display { self.shared.record(json!({"type": "display", "callId": call.id, "payload": d})); }
             emit(events::tool_finished(&call.id, &m, display.as_ref(), err, ms));
@@ -551,10 +642,11 @@ impl Agent {
             emit(events::tool_started(&call.id, &call.name, &call.name));
             return reply(&format!("Error: unknown tool '{}'. Available: {}", call.name, self.registry.names().join(", ")), true, None, 0);
         };
-        let Some(args) = call.parsed() else {
+        let Some(mut args) = call.parsed() else {
             emit(events::tool_started(&call.id, &call.name, &call.name));
             return reply(&format!("Error: arguments are not valid JSON: {}. Retry with a valid JSON object.", text::prefix(&call.arguments, 300)), true, None, 0);
         };
+        crate::tools::coerce(&mut args, &tool.contract.parameters);
         let summary = tool.summary(&args);
         emit(events::tool_started(&call.id, &call.name, &summary));
         if let Some(e) = validate(&args, &tool.contract.parameters) {
@@ -984,7 +1076,7 @@ impl Agent {
         // skip extraction when the main agent already wrote memory this turn (mutual exclusion)
         let wrote = new_msgs.iter().any(|m| m.role == Role::Tool && m.name.as_deref() == Some("memory_write") && m.content.starts_with("已保存"));
         let extract = memory_on && !wrote && new_msgs.iter().any(|m| m.role == Role::User && !m.is_meta);
-        if !update_notes && !extract && !(memory_on && self.shared.project_root.is_some()) { return; }
+        if !update_notes && !extract && !memory_on { return; }
         let (fm, fc) = self.fast_pair();
         let (notes, paths, snapshot) = (self.notes.clone(), self.shared.paths.clone(), self.context.clone());
         let job = AfterTurnJob { update_notes, extract, memory_on, est, snapshot, new_msgs,
@@ -1001,7 +1093,7 @@ impl Agent {
             let Some(j) = next else { break };
             if j.update_notes { notes.update(&paths, &j.snapshot, &fc, &fm, j.est); }
             let pdir = j.project.as_ref().map(|r| crate::memory::project_dir(r));
-            if j.extract { crate::extract::extract(&paths, &j.new_msgs, &fc, &fm, pdir.as_deref()); }
+            if j.extract { crate::extract::extract(&paths, &j.new_msgs, &fc, &fm, pdir.as_deref(), Some(&j.emit)); }
             if let (true, Some(r), Some(d)) = (j.memory_on, &j.project, &pdir) {
                 if d.exists() {
                     let ctx = crate::dream::Ctx { paths: paths.clone(), dir: d.clone(), sessions_dir: r.join(".datapilot/sessions"), current: j.sid.clone(),
@@ -1010,13 +1102,24 @@ impl Agent {
                     if rep.skipped.is_none() { (j.emit)(events::notice(&rep.text())); }
                 }
             }
+            // user layer: same gates (≥ 24 h + ≥ 5 other chats), sessions = the non-project chats
+            if j.memory_on {
+                let ud = crate::memory::user_dir(&paths.app_support);
+                if ud.exists() {
+                    let ctx = crate::dream::Ctx { paths: paths.clone(), dir: ud, sessions_dir: paths.sessions_dir(), current: j.sid.clone(),
+                                                  kernel: None, client: fc.clone(), model: fm.clone() };
+                    let rep = crate::dream::run(&ctx, crate::dream::Trigger::Due);
+                    if rep.skipped.is_none() { (j.emit)(events::notice(&rep.text().replace("记忆整理", "用户记忆整理"))); }
+                }
+            }
         });
     }
 
     /// `/dream` → run consolidation now (any gate skipped); `/dream undo` → restore the pre-dream memory.
     pub fn dream_command(&self, undo: bool) -> String {
         if !self.shared.settings.memory_enabled { return "记忆功能已关闭，无法整理。".into(); }
-        let Some(ctx) = self.dream_ctx() else { return "只有在项目中才有项目记忆可以整理。".into() };
+        // outside a project `/dream` consolidates the user layer
+        let Some(ctx) = self.dream_ctx().or_else(|| Some(self.user_dream_ctx())) else { return String::new() };
         if undo {
             return match crate::dream::rollback(&ctx.dir) { Ok(n) => format!("↩️ 已撤销上次记忆整理，恢复为 {n} 条记忆。"), Err(e) => format!("无法撤销：{e}") };
         }
@@ -1030,6 +1133,13 @@ impl Agent {
         let (fm, fc) = self.fast_pair();
         Some(crate::dream::Ctx { paths: self.shared.paths.clone(), dir: crate::memory::project_dir(r), sessions_dir: r.join(".datapilot/sessions"),
                                  current: self.shared.id.clone(), kernel: Some(self.shared.kernel.clone()), client: fc, model: fm })
+    }
+
+    /// Dream context for the user layer (AppSupport/memory; sessions = non-project chats).
+    pub fn user_dream_ctx(&self) -> crate::dream::Ctx {
+        let (fm, fc) = self.fast_pair();
+        crate::dream::Ctx { paths: self.shared.paths.clone(), dir: crate::memory::user_dir(&self.shared.paths.app_support),
+                            sessions_dir: self.shared.paths.sessions_dir(), current: self.shared.id.clone(), kernel: None, client: fc, model: fm }
     }
 
     /// Block until the background after-turn worker (notes / memory extraction / consolidation) is idle.
@@ -1070,4 +1180,31 @@ pub fn btw_messages(context: &[ChatMessage], question: &str, window: usize) -> V
     lines.reverse();
     let sys = "你是 DataPilot 的旁问助手。用户在主任务进行中顺便问了一个问题（/btw）。只根据下面的对话记录和你的常识简短回答，不能调用任何工具，不要改变或继续主任务；记录里没有的信息就直接说不知道。用用户的语言回答，尽量简洁。\nYou answer a quick side question (/btw) from the conversation below; no tools, be brief.";
     vec![ChatMessage::system(sys), ChatMessage::user(format!("<conversation>\n{}\n</conversation>\n\n/btw {question}", lines.join("\n\n")))]
+}
+
+/// Shown when a turn hits the step limit: how to go on and where to raise it.
+pub fn max_turns_notice(n: usize) -> String {
+    format!("已执行 {n} 步，达到「最大轮数」上限，先停在这里。回复「继续」可从这里接着做；如果经常需要更多步（如浏览器长流程），可在 设置 → 通用 → 最大轮数 调高（最高 300）。\n\
+             Step limit ({n}) reached — reply \"continue\" to go on; raise it in Settings → General → Max turns (up to 300).")
+}
+
+/// The browser tool spec without the screenshot action (models without image input).
+pub fn without_screenshot(s: &mut crate::types::ToolSpec) {
+    if let Some(e) = s.parameters.pointer_mut("/properties/action/enum").and_then(|v| v.as_array_mut()) { e.retain(|v| v != "screenshot"); }
+    s.description = s.description.replace(" | screenshot", "");
+}
+
+#[cfg(test)]
+mod notice_tests {
+    use super::*;
+    #[test]
+    fn browser_spec_without_screenshot() {
+        let mut t = crate::types::ToolSpec { name: "browser".into(), description: "x | extract_tables | screenshot".into(),
+            parameters: json!({"properties": {"action": {"enum": ["snapshot", "screenshot"]}}}) };
+        without_screenshot(&mut t);
+        assert_eq!(t.parameters["properties"]["action"]["enum"], json!(["snapshot"]));
+        assert!(!t.description.contains("screenshot"));
+        let n = max_turns_notice(120);
+        assert!(n.contains("120") && n.contains("继续") && n.contains("最大轮数"));
+    }
 }

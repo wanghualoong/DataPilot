@@ -1,4 +1,5 @@
 import { CircleHelp, ClipboardList, Globe, Search, ShieldAlert } from "lucide-react";
+import { imeEnter } from "../ime";
 import { ic } from "./ui";
 import { useState } from "react";
 import { useApp } from "../store";
@@ -75,7 +76,7 @@ export function QuestionCard({ c }: { c: Extract<Card, { kind: "question" }> }) 
           <div className="row wrap">{c.options.map((o) => <button key={o} onClick={() => respond(c.id, "question", o)}>{o}</button>)}</div>
           <div className="row">
             <input placeholder={L("或者输入你的回答", "Or type an answer")} value={text} onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && text.trim()) respond(c.id, "question", text.trim()); }} />
+              onKeyDown={(e) => { if (e.key === "Enter" && !imeEnter(e) && text.trim()) respond(c.id, "question", text.trim()); }} />
             <button disabled={!text.trim()} onClick={() => respond(c.id, "question", text.trim())}>{L("回答", "Answer")}</button>
           </div>
         </>

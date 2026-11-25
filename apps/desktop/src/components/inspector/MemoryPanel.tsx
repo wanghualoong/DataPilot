@@ -1,7 +1,7 @@
 import { IconBtn } from "../ui";
 import { BadgeCheck, FileText, Pencil, Table2, Trash2 } from "lucide-react";
 import { ask } from "../../native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { L } from "../../i18n";
 import { useApp } from "../../store";
 import { core } from "../../transport";
@@ -12,6 +12,19 @@ import { sid, useLoad } from "./common";
 type Topic = { file: string; name: string; description: string; type: string; body: string; modified?: number; usage?: { recalled?: number; cited?: number; count?: number } | null };
 
 const typeLabel = (t: string) => ({ project: L("口径/规则", "project"), feedback: L("纠正", "feedback"), reference: L("资料入口", "reference"), user: L("用户", "user") } as Record<string, string>)[t] ?? t;
+/** Status / origin written by the extractor (**状态：** confirmed|pending, **来源：** …). */
+export function memStatus(body: string): { status?: "confirmed" | "pending"; origin?: string } {
+  const s = /\*\*状态：\*\*\s*(confirmed|pending)/.exec(body ?? "")?.[1] as any;
+  const o = /\*\*来源：\*\*\s*([^\n]+)/.exec(body ?? "")?.[1]?.trim();
+  return { status: s, origin: o };
+}
+/** The user confirms an inferred memory in the panel: pending → confirmed, origin noted. */
+export function confirmBody(body: string): string {
+  let b = body.replace(/\*\*状态：\*\*\s*pending/, "**状态：** confirmed");
+  const o = "用户在记忆面板确认（" + new Date().toISOString().slice(0, 10) + "）";
+  b = /\*\*来源：\*\*[^\n]*/.test(b) ? b.replace(/\*\*来源：\*\*[^\n]*/, "**来源：** " + o) : b + "\n\n**来源：** " + o;
+  return b;
+}
 const day = (secs?: number) => (secs ? new Date(secs * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
 const ago = (secs: number) => {
   const d = (secs * 1000 - Date.now()) / 1000, rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
@@ -30,7 +43,7 @@ function TopicForm({ t, onSave, onClose }: { t: Topic; onSave: (t: Topic) => voi
         <label className="fld"><span>{L("类型", "Type")}</span>
           <select value={v.type} onChange={(e) => setV({ ...v, type: e.target.value })}>{["project", "feedback", "reference", "user"].map((x) => <option key={x} value={x}>{typeLabel(x)} {x}</option>)}</select>
         </label>
-        <div className="muted small">{L("正文：规则或事实 + **Why:** 原因 + **How to apply:** 适用范围", "Body: rule/fact + **Why:** + **How to apply:**")}</div>
+        <div className="muted small">{L("正文：规则 + **依据：** + **状态：** confirmed / pending + **How to apply:** 适用范围", "Body: rule + **依据：** (evidence) + **状态：** confirmed|pending + **How to apply:**")}</div>
         <textarea rows={8} value={v.body} onChange={(e) => setV({ ...v, body: e.target.value })} />
         <div className="row end"><button onClick={onClose}>{L("取消", "Cancel")}</button><button className="primary" disabled={!v.name.trim() || !v.body.trim()} onClick={() => onSave(v)}>{L("保存", "Save")}</button></div>
       </div>
@@ -53,6 +66,36 @@ function QSQLForm({ q, onSave, onClose }: { q: any; onSave: (question: string, s
   );
 }
 
+/** User-level DATAPILOT.md: standing instructions written by the user, loaded into every chat (all projects). */
+function Instructions() {
+  const fail = useApp((s) => s.fail);
+  const note = useApp((s) => s.note);
+  const [text, setText] = useState<string>();
+  const [saved, setSaved] = useState("");
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    core.request("memory/instructions", { action: "get" }).then((r: any) => { setText(r?.text ?? ""); setSaved(r?.text ?? ""); }).catch(() => setText(""));
+  }, []);
+  if (text === undefined) return null;
+  const save = async () => {
+    try { await core.request("memory/instructions", { action: "set", text }); setSaved(text); note(L("已保存「关于我」指令，新的对话轮次生效", "Saved; applies from the next turn")); } catch (e) { fail(e); }
+  };
+  return (
+    <div className="pad instr">
+      <div className="row small click" onClick={() => setOpen(!open)}>
+        <b className="grow">{L("关于我 · 长期指令（DATAPILOT.md）", "About me · standing instructions (DATAPILOT.md)")}</b>
+        <span className="muted xs">{saved.trim() ? L(`${saved.trim().length} 字`, `${saved.trim().length} chars`) : L("未填写", "empty")}</span>
+      </div>
+      {open && <>
+        <div className="muted xs">{L("你自己写的长期要求，每次对话、所有项目都会加载（例如：金额用万元、结论先行、报告用表格）。与下面自动记住的条目不同，这里只由你修改。",
+          "Your own standing instructions, loaded into every chat in every project (e.g. amounts in 10k CNY, conclusion first). Only you edit this; the entries below are learned automatically.")}</div>
+        <textarea rows={6} value={text} placeholder={L("- 金额默认用万元，保留两位小数\n- 先给结论，再给方法\n- 小结果用表格展示", "- Amounts in 10k, two decimals\n- Conclusion first\n- Use tables for small results")} onChange={(e) => setText(e.target.value)} />
+        <div className="row end"><button className="primary" disabled={text === saved} onClick={save}>{L("保存", "Save")}</button></div>
+      </>}
+    </div>
+  );
+}
+
 function Topics({ scope, r, reload }: { scope: "user" | "project"; r: any; reload: () => void }) {
   const fail = useApp((s) => s.fail);
   const [edit, setEdit] = useState<Topic>();
@@ -65,6 +108,7 @@ function Topics({ scope, r, reload }: { scope: "user" | "project"; r: any; reloa
   const topics: Topic[] = r?.topics ?? [];
   return (
     <>
+      {scope === "user" && <Instructions />}
       <div className="row pad small">
         <span className="muted grow">{scope === "user" ? L("跨项目的个人偏好，保存在本机；MEMORY.md 是索引", "Personal preferences for all projects; MEMORY.md is the index") : L("随项目文件夹保存；MEMORY.md 是索引", "Stored with the project; MEMORY.md is the index")}</span>
         <button onClick={() => setEdit({ file: "", name: "", description: "", type: scope === "user" ? "user" : "project", body: "" })}>{L("新建", "New")}</button>
@@ -81,12 +125,18 @@ function Topics({ scope, r, reload }: { scope: "user" | "project"; r: any; reloa
               {t.description && <span className="muted small ell2">{t.description}</span>}
               <span className="muted xs row wrap">
                 <span className="ibadge">{typeLabel(t.type)}</span>
+                {memStatus(t.body).status === "pending" && <span className="ibadge warn" title={memStatus(t.body).origin ?? ""}>{L("待确认", "unconfirmed")}</span>}
+                {memStatus(t.body).status === "confirmed" && <span className="ibadge ok" title={memStatus(t.body).origin ?? ""}>{L("已确认", "confirmed")}</span>}
                 {day(t.modified)}
                 {t.usage && <>{t.usage.cited ? <span>{L("引用 ", "cited ") + ago(t.usage.cited)}</span> : t.usage.recalled ? <span>{L("召回 ", "recalled ") + ago(t.usage.recalled)}</span> : null}<span>×{t.usage.count ?? 0}</span></>}
-                <span className="mono">{t.file}</span>
+                <span>{t.file}</span>
               </span>
             </span>
             <IconBtn icon={FileText} size={13} title={L("在编辑器中打开", "Open in editor")} onClick={() => r?.dir && openPath(`${r.dir}/${t.file}`)} />
+            {memStatus(t.body).status === "pending" && (
+              <IconBtn icon={BadgeCheck} size={13} title={L("确认这条记忆是对的（之后按已确认处理）", "Confirm this memory")}
+                onClick={() => save({ ...t, body: confirmBody(t.body) })} />
+            )}
             <IconBtn icon={Pencil} size={13} title={L("编辑", "Edit")} onClick={() => setEdit(t)} />
             <IconBtn icon={Trash2} size={13} className="danger" title={L("删除", "Delete")} onClick={async () => {
               if (!(await ask(scope === "project" ? L(`删除项目记忆「${t.name}」？`, `Delete project memory “${t.name}”?`) : L(`删除记忆「${t.name}」？`, `Delete “${t.name}”?`)))) return;

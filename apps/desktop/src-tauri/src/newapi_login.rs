@@ -1,5 +1,5 @@
 //! New API gateway login window (port of the Swift `NewAPIAccount` web login). The gateway's own login page runs in a
-//! separate window, so every login method it offers works (password, Duke NetID / OIDC, GitHub …). Once logged in, a
+//! separate window, so every login method it offers works (password, SSO / OIDC, GitHub …). Once logged in, a
 //! same-origin request from that page gets the dashboard access token (older versions: the session cookie + user id),
 //! which is handed to the UI in memory only. The window is a remote origin: it has no IPC capability at all.
 use serde_json::{json, Value};
@@ -123,7 +123,7 @@ pub fn login(app: &AppHandle, origin: &str, fresh: bool, notify: impl Fn(&str)) 
         let forced = FORCE.swap(false, Ordering::SeqCst);
         if Instant::now() < cool && !forced { continue; }
         let Ok(url) = w.url() else { continue };
-        if url.host_str() != Some(host.as_str()) && !forced { continue; }   // e.g. the NetID / OIDC pages
+        if url.host_str() != Some(host.as_str()) && !forced { continue; }   // e.g. the SSO / OIDC pages
         let p = url.path().to_string();
         let loginish = ["/login", "/sign-in", "/oauth", "/register", "/reset"].iter().any(|x| p.starts_with(x));
         // After a login the console goes to /console (older New API) or /dashboard · /keys (newer; it also sets the

@@ -69,6 +69,43 @@ impl UiDb {
     }
 
     // ---------- projects ----------
+    /// Consistent copy of the database (SQLite online backup) at `dst`.
+    pub fn snapshot_to(&self, dst: &Path) -> Result<(), String> {
+        self.db.lock().unwrap().backup(rusqlite::DatabaseName::Main, dst, None).map_err(|e| format!("app.sqlite 快照失败：{e}"))
+    }
+
+    /// Replace the whole database with a backup copy (SQLite online restore: safe while this connection is open).
+    pub fn restore_from(&self, src: &Path) -> Result<(), String> {
+        let mut db = self.db.lock().unwrap();
+        db.restore(rusqlite::DatabaseName::Main, src, None::<fn(rusqlite::backup::Progress)>).map_err(|e| format!("app.sqlite 恢复失败：{e}"))?;
+        migrate(&db).map_err(|e| format!("app.sqlite migrate: {e}"))
+    }
+
+    /// Merge a backup copy: chats that are not here yet (ids kept) with their search text, and the projects being
+    /// restored. Chats of projects not in `projects` are left out (their folders are not restored). Returns new chat ids.
+    pub fn merge_from(&self, src: &Path, projects: &std::collections::HashSet<String>) -> Result<Vec<String>, String> {
+        let db = self.db.lock().unwrap();
+        db.execute("ATTACH DATABASE ?1 AS b", [src.to_string_lossy().to_string()]).map_err(|e| format!("app.sqlite 合并失败：{e}"))?;
+        let r = (|| -> rusqlite::Result<Vec<String>> {
+            let rows: Vec<(String, Option<String>)> = {
+                let mut st = db.prepare("SELECT id, project_id FROM b.sessions WHERE id NOT IN (SELECT id FROM main.sessions)")?;
+                let v = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.flatten().collect();
+                v
+            };
+            let mut ids = vec![];
+            for (id, pid) in rows {
+                if pid.as_ref().map(|p| !projects.contains(p)).unwrap_or(false) { continue; }
+                db.execute("INSERT OR IGNORE INTO main.sessions(id, title, created, updated, model, mode, archived, pinned, summary, dataset_fps, project_id)
+                            SELECT id, title, created, updated, model, mode, archived, pinned, summary, dataset_fps, project_id FROM b.sessions WHERE id=?1", [&id])?;
+                db.execute("INSERT INTO main.messages_fts(content, session_id, msg_id) SELECT content, session_id, msg_id FROM b.messages_fts WHERE session_id=?1", [&id])?;
+                ids.push(id);
+            }
+            Ok(ids)
+        })();
+        let _ = db.execute("DETACH DATABASE b", []);
+        r.map_err(|e| format!("app.sqlite 合并失败：{e}"))
+    }
+
     pub fn list_projects(&self) -> Vec<Value> {
         let db = self.db.lock().unwrap();
         let mut st = db.prepare("SELECT id, name, path FROM projects ORDER BY updated DESC").unwrap();
@@ -96,6 +133,7 @@ impl UiDb {
         if let Some(existing) = self.project_id_for_path(folder) { id = existing; }
         let name = folder.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         for d in [state.clone(), state.join("data"), state.join("sessions"), folder.join("outputs")] { std::fs::create_dir_all(&d).map_err(|e| e.to_string())?; }
+        crate::platform::hide(&state);   // Windows: hidden like a dot-folder on macOS (existing projects too, on next open)
         std::fs::write(&pj, serde_json::to_string_pretty(&json!({"id": id, "name": name, "app": "DataPilot", "version": 1})).unwrap()).map_err(|e| e.to_string())?;
         let gi = state.join(".gitignore");
         if !gi.exists() { let _ = std::fs::write(&gi, "# DataPilot local state (database, transcripts)\n*\n"); }

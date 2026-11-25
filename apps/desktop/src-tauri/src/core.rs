@@ -74,7 +74,12 @@ impl CoreProcess {
     fn launch(&self) -> Result<Running, String> {
         let l = &self.layout;
         std::fs::create_dir_all(&l.app_support).map_err(|e| format!("{}: {e}", l.app_support.display()))?;
-        let log = std::fs::OpenOptions::new().create(true).append(true).open(l.app_support.join("core.log")).map_err(|e| e.to_string())?;
+        // core.log = the core's stderr; keep one previous generation at 5 MB (the core expires core.log.1 after 14 days)
+        let lp = l.app_support.join("core.log");
+        if std::fs::metadata(&lp).map(|m| m.len() > 5 * 1024 * 1024).unwrap_or(false) {
+            let _ = std::fs::rename(&lp, l.app_support.join("core.log.1"));
+        }
+        let log = std::fs::OpenOptions::new().create(true).append(true).open(&lp).map_err(|e| e.to_string())?;
         let mut c = Command::new(&l.core);
         c.env("DP_RESOURCES", &l.resources).env("DP_PYTHON_ROOT", &l.python_root).env("DP_APP_SUPPORT", &l.app_support)
             .env_remove("DP_API_KEY")   // keys come from the keychain / credential store, never the environment

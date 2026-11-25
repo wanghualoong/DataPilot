@@ -19,4 +19,6 @@ it("accepts aliases for slash commands", () => {
   expect(canonicalCmd("Context")).toBe("context");
   expect(canonicalCmd("my_skill", ["my_skill"])).toBe("my_skill");
   expect(canonicalCmd("nope")).toBe("nope");
+  expect(canonicalCmd("数据对比", ["data-compare"])).toBe("data-compare");
+  expect(filterCmds([...builtins, { name: "data-compare", desc: "数据对比 / Data Compare" }], "对比").map((c) => c.name)).toContain("data-compare");
 });

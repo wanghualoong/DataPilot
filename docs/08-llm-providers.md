@@ -1,7 +1,7 @@
 # 08 · 模型接入（New API / Qwen / DeepSeek / 本地模型）
 
 ## 接口
-只使用 OpenAI 兼容接口：`POST /v1/chat/completions`（SSE 流式）、`GET /v1/models`。不使用 Embedding / Rerank（检索走关键词 + grep，见 ADR-0006）。Base URL 可写到 `/v1`，也可只写主机（自动补 `/v1`）。API Key 存 macOS 钥匙串（服务名 `io.github.datapilot.apikeys`；旧版 `edu.duke.datapilot.apikeys` 首次读取时自动迁移）。
+只使用 OpenAI 兼容接口：`POST /v1/chat/completions`（SSE 流式）、`GET /v1/models`。不使用 Embedding / Rerank（检索走关键词 + grep，见 ADR-0006）。Base URL 可写到 `/v1`，也可只写主机（自动补 `/v1`）。API Key 存 macOS 钥匙串（服务名 `io.github.datapilot.apikeys`）。
 
 ## 代理
 - 全局代理（设置 → 通用 → 网络代理）：**跟随系统（默认，含 PAC 自动配置）** / 直连 / 自定义（主机 + 端口）。代码中不再写死任何代理地址。
@@ -47,8 +47,8 @@ vllm serve Qwen/Qwen3-32B --enable-auto-tool-choice --tool-call-parser hermes \
 ## 图片输入（视觉）
 实测（2026-11-08，红/蓝两色图片识别）：`qwen3.8-27b-local` ✅ 0.58s、`qwen3.8-flash` ✅ 0.70s、`DeepSeek-V4.1-Flash` ✅ 1.1s。预设已对 qwen3.5+ / qwen3.8 / deepseek-v4 打开 `supportsVision`；“模型角色 → 测试”会实际发一张图片探测并自动写入能力配置。开启后浏览器截图、Computer Use 视觉模式可直接用主模型。
 
-## 实测：DKU New API 网关（2026-11-08）
-Base URL：`https://aichat.dukekunshan.edu.cn:3443/v1`（走 `no_proxy` 直连；TLS 证书链由系统钥匙串信任，URLSession 正常，Python 需用系统 CA）。
+## 实测：一个 New API 网关（2026-11-08）
+Base URL 形如 `https://gateway.example.edu/v1`（内网网关走 `no_proxy` 直连；TLS 证书链由系统钥匙串信任，URLSession 正常，Python 需用系统 CA）。
 
 | 模型 | 原生工具调用 | 推理内容 | 关闭思考的有效参数 |
 |---|---|---|---|
@@ -65,11 +65,11 @@ Base URL：`https://aichat.dukekunshan.edu.cn:3443/v1`（走 `no_proxy` 直连�
 设置 → 模型服务 → 选择 Provider → “获取并添加模型…”：调用 `/v1/models` 拉取全部模型，弹出勾选列表（可搜索、按 全部/对话/其他 过滤；默认保留已添加的模型并补勾一个结尾为 local 的模型；“推荐”按钮可一键追加 Qwen/DeepSeek 对话模型）。只有**已添加**的模型出现在模型切换菜单、`/model` 选择器和角色下拉框中。首次启动向导完成后只添加所选的主模型 / 快速模型，以及一个结尾为 local 的本地模型；“登录并选择 Key”后弹出的勾选列表默认只勾选这个 local 模型，可在列表顶部修改服务名称。
 
 ## API Key 配置
-Key 不写入代码或 config.json，统一保存在 macOS 钥匙串（服务名 `io.github.datapilot.apikeys`，自动从旧名 `edu.duke.datapilot.apikeys` 迁移），在“首次启动向导”或“设置 → 模型服务”中填写/修改。
+Key 不写入代码或 config.json，统一保存在 macOS 钥匙串（服务名 `io.github.datapilot.apikeys`），在“首次启动向导”或“设置 → 模型服务”中填写/修改。
 
-### 登录并选择 Key（New API 网关，如 DKU 的 Duke NetID）
-向导选择 DKU 预设（或自定义），或者在 设置 → 模型服务 中点 **“登录并选择 Key…”**：
-1. 弹出窗口打开网关登录页，用 Duke NetID（或网关支持的其他方式）登录；
+### 登录并选择 Key（New API 网关）
+向导选择网关预设（或自定义），或者在 设置 → 模型服务 中点 **“登录并选择 Key…”**：
+1. 弹出窗口打开网关登录页，用网关支持的方式（账号密码、SSO / OIDC 等）登录；
 2. 自动列出你账号下的 Key（名称、状态、剩余额度、过期时间、可用模型、分组；Key 已脱敏）；
 3. 选中后点“使用所选 Key”（或双击）：取回完整 Key 存入钥匙串，然后自动获取模型列表；
 4. 没有 Key 时可点“新建 DataPilot 专用 Key”。

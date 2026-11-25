@@ -1,8 +1,7 @@
 """Direct database connections (read-only): connection-form definitions, metadata, live queries, batch fetch.
 
-Connection fields / metadata queries per database follow the approach of Chat2DB Community v5.3.8's plugins
-(Adapted from Chat2DB Community v5.3.8 (LicenseRef-Chat2DB) — design and catalog queries re-implemented in Python
-with pure-Python drivers instead of JDBC).
+Catalog queries use each database's documented system views (information_schema, pg_catalog, sys.*, ALL_*, system.*)
+through pure-Python drivers.
 
 Security model:
   * passwords arrive per call from the app (keychain) and are never stored, logged or returned; every error
@@ -10,6 +9,7 @@ Security model:
   * sessions are opened read-only where the server supports it, and every live query passes `check_readonly`
     in the target dialect; rows are capped with fetchmany (no SQL rewriting needed) and a statement timeout is set.
 """
+import json
 import os
 import re
 import sqlite3
@@ -19,45 +19,12 @@ import time
 import sqlglot
 from sqlglot import exp
 
-# ---------- connection form definitions (shared by every UI: SwiftUI now, Tauri later) ----------
-_NET = [
-    {"key": "host", "label": "主机 / Host", "kind": "text", "required": True, "default": "localhost"},
-    {"key": "port", "label": "端口 / Port", "kind": "int", "required": True},
-    {"key": "database", "label": "数据库 / Database", "kind": "text"},
-    {"key": "user", "label": "用户名 / User", "kind": "text", "required": True},
-    {"key": "password", "label": "密码 / Password", "kind": "secret"},
-]
-# SSH tunnel (run by the DataPilot core outside the kernel sandbox; the kernel connects to its local end).
-# `group: ssh` fields are shown only when the `ssh` toggle is on; `ssh_secret` is a password or key passphrase that
-# goes to the keychain like the database password.
-_SSH = [
-    {"key": "ssh", "label": "通过 SSH 隧道连接 / Connect via SSH tunnel", "kind": "bool"},
-    {"key": "ssh_host", "label": "SSH 主机 / SSH host", "kind": "text", "group": "ssh"},
-    {"key": "ssh_port", "label": "SSH 端口 / SSH port", "kind": "int", "group": "ssh", "default": "22"},
-    {"key": "ssh_user", "label": "SSH 用户 / SSH user", "kind": "text", "group": "ssh"},
-    {"key": "ssh_key", "label": "私钥文件（可选）/ Private key (optional)", "kind": "path", "group": "ssh", "default": "~/.ssh/id_ed25519"},
-    {"key": "ssh_secret", "label": "SSH 密码或私钥口令 / SSH password or key passphrase", "kind": "secret", "group": "ssh"},
-]
-_FILE = [{"key": "path", "label": "文件路径 / File", "kind": "file", "required": True}]
-
-DB_TYPES = [
-    {"type": "postgres", "label": "PostgreSQL", "dialect": "postgres", "default_port": 5432, "driver": "pg8000",
-     "note": "也适用于金仓 KingbaseES、openGauss 等 PostgreSQL 协议数据库",
-     "fields": _NET + [{"key": "schema", "label": "Schema", "kind": "text", "default": "public"},
-                       {"key": "ssl", "label": "SSL", "kind": "bool"}] + _SSH},
-    {"type": "mysql", "label": "MySQL / MariaDB", "dialect": "mysql", "default_port": 3306, "driver": "pymysql",
-     "note": "也适用于 TiDB、Doris、StarRocks 等 MySQL 协议数据库",
-     "fields": _NET + [{"key": "ssl", "label": "SSL", "kind": "bool"}] + _SSH},
-    {"type": "sqlserver", "label": "SQL Server", "dialect": "tsql", "default_port": 1433, "driver": "pymssql",
-     "fields": _NET + [{"key": "schema", "label": "Schema", "kind": "text", "default": "dbo"}] + _SSH},
-    {"type": "oracle", "label": "Oracle", "dialect": "oracle", "default_port": 1521, "driver": "oracledb (thin)",
-     "note": "数据库一栏填服务名（service name）",
-     "fields": _NET + [{"key": "schema", "label": "Schema（默认用户名）", "kind": "text"}] + _SSH},
-    {"type": "clickhouse", "label": "ClickHouse", "dialect": "clickhouse", "default_port": 8123,
-     "driver": "clickhouse-connect (HTTP)", "fields": _NET + [{"key": "ssl", "label": "HTTPS", "kind": "bool"}] + _SSH},
-    {"type": "sqlite", "label": "SQLite 文件", "dialect": "sqlite", "driver": "sqlite3", "fields": _FILE},
-    {"type": "duckdb", "label": "DuckDB 文件", "dialect": "duckdb", "driver": "duckdb", "fields": _FILE},
-]
+# ---------- connection form definitions ----------
+# In db_types.json (next to this file) so the DataPilot core can answer the UI's connection form without starting
+# the kernel. `group: ssh` fields are shown only when the `ssh` toggle is on; `ssh_secret` (password or key
+# passphrase) goes to the keychain like the database password.
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "db_types.json"), encoding="utf-8") as _f:
+    DB_TYPES = json.load(_f)
 TYPES = {t["type"]: t for t in DB_TYPES}
 FILE_TYPES = ("sqlite", "duckdb")
 
@@ -225,10 +192,21 @@ def _connect(t, c, pw, timeout, resolve):
         return Conn(raw, t)
     if t == "clickhouse":
         import clickhouse_connect.dbapi
+        # Settings go on the client one by one: passing `settings=` through dbapi.connect clashes with the driver's
+        # own argument, and an account that is already read-only (readonly=1) refuses any change of settings.
         raw = clickhouse_connect.dbapi.connect(host=host, port=port, username=user, password=pw or "",
                                                database=db or "default", secure=bool(c.get("ssl")),
-                                               settings={"readonly": 2, "max_execution_time": timeout},
                                                connect_timeout=min(timeout, 20), send_receive_timeout=timeout)
+        for k, v in (("readonly", 2), ("max_execution_time", timeout)):
+            try:
+                raw.client.set_client_setting(k, v)
+            except Exception:  # noqa: BLE001  (readonly on this server / account)
+                pass
+        cur = raw.cursor()
+        cur.execute("SELECT getSetting('readonly')")
+        if str(cur.fetchall()[0][0]) in ("0", "False"):
+            raw.close()
+            raise DBError("无法把 ClickHouse 会话设为只读 / could not make the ClickHouse session read-only")
         return Conn(raw, t)
     if t == "sqlite":
         path = resolve(c.get("path") or "")
@@ -304,7 +282,7 @@ def run(cn, sql, params=None, limit=None, timeout=60, batch=None):
 
 # ---------- metadata ----------
 def _p(kind):
-    return {"postgres": "%s", "mysql": "%s", "sqlserver": "%s", "oracle": ":1", "clickhouse": "%(p)s",
+    return {"postgres": "%s", "mysql": "%s", "sqlserver": "%s", "oracle": ":o", "clickhouse": "%(p)s",
             "sqlite": "?", "duckdb": "?"}[kind]
 
 
@@ -333,12 +311,13 @@ def list_tables(cn, conn):
         "postgres": "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema=%s ORDER BY table_name",
         "mysql": "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema=%s ORDER BY table_name",
         "sqlserver": "SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=%s ORDER BY TABLE_NAME",
-        "oracle": "SELECT table_name, 'TABLE' FROM all_tables WHERE owner=:1 UNION ALL "
-                  "SELECT view_name, 'VIEW' FROM all_views WHERE owner=:1 ORDER BY 1",
+        "oracle": "SELECT table_name, 'TABLE' FROM all_tables WHERE owner=:o UNION ALL "
+                  "SELECT view_name, 'VIEW' FROM all_views WHERE owner=:o ORDER BY 1",
         "clickhouse": "SELECT name, engine FROM system.tables WHERE database=%(p)s ORDER BY name",
         "duckdb": "SELECT table_name, table_type FROM information_schema.tables WHERE table_schema=? ORDER BY table_name",
     }[t]
-    params = {"p": sch} if t == "clickhouse" else [sch] if t != "oracle" else [sch.upper() if sch else sch]
+    # Oracle: named binds (a positional :1 used twice in SQL needs two values)
+    params = {"p": sch} if t == "clickhouse" else {"o": sch.upper() if sch else sch} if t == "oracle" else [sch]
     rows = run(cn, q, params)[1]
     return [{"schema": sch, "table": r[0], "type": "view" if "VIEW" in str(r[1]).upper() else "table"} for r in rows]
 
@@ -358,7 +337,7 @@ def columns(cn, conn, table, schema=None):
                        "(SELECT count(*) FROM all_cons_columns cc JOIN all_constraints k ON k.owner=cc.owner AND "
                        "k.constraint_name=cc.constraint_name WHERE k.constraint_type='P' AND cc.owner=c.owner AND "
                        "cc.table_name=c.table_name AND cc.column_name=c.column_name) FROM all_tab_columns c "
-                       "WHERE c.owner=:1 AND c.table_name=:2 ORDER BY c.column_id", [sch.upper(), table])[1]
+                       "WHERE c.owner=:o AND c.table_name=:t ORDER BY c.column_id", {"o": sch.upper(), "t": table})[1]
         return [{"name": r[0], "type": r[1], "nullable": r[2] == "Y", "pk": bool(r[3])} for r in rows]
     ph = _p(t)
     pk_sql = ("SELECT kcu.column_name FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu "
@@ -422,8 +401,8 @@ def foreign_keys(cn, conn, tables=None):
                        "FROM all_cons_columns a JOIN all_constraints c ON a.owner=c.owner AND a.constraint_name=c.constraint_name "
                        "JOIN all_constraints c_pk ON c.r_owner=c_pk.owner AND c.r_constraint_name=c_pk.constraint_name "
                        "JOIN all_cons_columns b ON b.owner=c_pk.owner AND b.constraint_name=c_pk.constraint_name "
-                       "AND b.position=a.position WHERE c.constraint_type='R' AND a.owner=:1 "
-                       "ORDER BY a.constraint_name, a.position", [sch.upper()])[1]
+                       "AND b.position=a.position WHERE c.constraint_type='R' AND a.owner=:o "
+                       "ORDER BY a.constraint_name, a.position", {"o": sch.upper()})[1]
         res = _group(rows)
     else:
         res = []

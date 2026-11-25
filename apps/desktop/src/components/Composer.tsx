@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { imeEnter } from "../ime";
 import { ArrowUp, FileText, MessageSquareText, Paperclip, Square, Table2, X } from "lucide-react";
 import { ask, pickFiles } from "../native";
 import { useApp } from "../store";
@@ -218,7 +219,7 @@ export function Composer({ running }: { running: boolean }) {
       case "help":
         return note(builtins.map((c) => `- /${c.name} — ${c.desc}`).join("\n") + (skills.length ? "\n\n" + L("Skills（直接 /名称 调用）：", "Skills (invoke with /name): ") + skills.map((s) => s.name).join(", ") : ""));
       default: {
-        const sk = skills.find((s) => s.name === name) ?? (await loadSkills()).find((s) => s.name === cmd.name);
+        const sk = skills.find((s) => s.name === name) ?? (await loadSkills()).find((s) => s.name === name || s.name === cmd.name || s.name === canonicalCmd(cmd.name, [s.name]));
         if (sk) return send(args || L(`使用 ${sk.name}`, `Use ${sk.name}`), sk.name);
         const near = filterCmds(builtins, name).slice(0, 3).map((c) => "/" + c.name);
         return note(L("未知命令 /", "Unknown command /") + name + (near.length ? L("。你是不是想用：", ". Did you mean: ") + near.join("、") : L("。输入 /help 查看全部命令", ". Type /help for all commands")));
@@ -270,7 +271,7 @@ export function Composer({ running }: { running: boolean }) {
             setText(v); setHi(0);
           }}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
+            if (imeEnter(e)) return;
             if (e.key === "Tab" && e.shiftKey) {   // ⇧⇥ cycles approval modes (Claude Code style)
               e.preventDefault();
               const cur = (selected && st.open[selected]?.mode) || "ask";

@@ -121,7 +121,9 @@ pub fn render(t: &Topic, path: &str) -> String {
     }
     if cut { body += &format!("\n（已截断；完整内容：read_file {path}）"); }
     let age = age_note(t.modified);
-    format!("### [mem:{}] {}（{}{}）\n{body}", t.file, t.name, t.kind, if age.is_empty() { String::new() } else { format!("，{age}") })
+    // inferred, never confirmed by the user: say so in the header (weak models copy memories literally)
+    let pending = if t.body.contains("**状态：** pending") { "，未确认：助手推断，先核实" } else { "" };
+    format!("### [mem:{}] {}（{}{}{pending}）\n{body}", t.file, t.name, t.kind, if age.is_empty() { String::new() } else { format!("，{age}") })
 }
 
 pub fn block(picked: &[Picked]) -> String {

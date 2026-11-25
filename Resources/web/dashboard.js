@@ -303,7 +303,7 @@
   function base(theme) {
     const ink = cssv('--ink'), ink2 = cssv('--ink2'), muted = cssv('--muted'), grid = cssv('--grid'), axis = cssv('--axis'), surf = cssv('--surface');
     return {
-      color: curPal(theme), backgroundColor: 'transparent', textStyle: { fontFamily: 'system-ui,-apple-system,"PingFang SC",sans-serif', color: ink2 },
+      color: curPal(theme), backgroundColor: 'transparent', textStyle: { fontFamily: '-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei",sans-serif', color: ink2 },
       animation: !window.DP_NOANIM, animationDuration: 300,
       tooltip: { backgroundColor: surf, borderColor: cssv('--border') || grid, textStyle: { color: ink, fontSize: fs(12) }, extraCssText: 'box-shadow:0 4px 16px rgba(0,0,0,.12);border-radius:8px' },
       legend: { type: 'scroll', top: 0, textStyle: { color: ink2, fontSize: fs(12) }, icon: 'roundRect', itemWidth: 10, itemHeight: 10 },
@@ -636,7 +636,7 @@
     return h;
   }
 
-  /** Explicit card sort (ChartSchema orderByType / orderByRule in Chat2DB v5.3.8, reduced to four choices). */
+  /** Explicit card sort: value or dimension, ascending or descending (unset = chart default). */
   function sortGroups(g, mode) {
     const num = (v) => (v == null ? -Infinity : v);
     const cmp = (a, b) => String(a).localeCompare(String(b), 'zh', { numeric: true });
@@ -666,7 +666,7 @@
     return spec;
   }
 
-  /** Card edit panel (fields after Chat2DB ChartSchema: dimension / measure / color group / sort / display switches).
+  /** Card edit panel: dimension / measure / color group / sort / display switches.
    *  The change is applied at once and sent to the host as {type:'widgetEdit', widget, patch} to be saved into the spec. */
   function editPanel(w, done) {
     const ds = table(state.data[w.dataset]);
@@ -717,27 +717,29 @@
     return w;
   }
 
-  /* Display switches (legend / labels / grid lines / axes / point markers).
-   * Adapted from Chat2DB Community v5.3.8 `blocks/BI/Chart/chartOptionUtils/handleOption.ts`
-   * (LicenseRef-Chat2DB, see Resources/about/CHAT2DB_LICENSE): same switches, rewritten without lodash and
-   * as explicit on/off overrides (unset = keep DataPilot's defaults). */
+  /* Card display switches (options.display): legend, label, splitLine, symbol, axisLine. Each switch is three-state —
+   * true forces it on, false forces it off, absent keeps what buildOption chose for this chart type. */
+  const DISPLAY = {
+    legend(opt, on) {
+      if (!on) { delete opt.legend; return; }
+      if (!opt.legend) opt.legend = Object.assign({}, base(document.documentElement.dataset.theme).legend);
+    },
+    label(opt, on) { eachSeries(opt, (s) => { s.label = Object.assign({}, s.label, { show: on }); }); },
+    symbol(opt, on) { eachSeries(opt, (s) => { if (s.type === 'line') s.showSymbol = on; }); },
+    splitLine(opt, on) {
+      eachAxis(opt, (ax) => { ax.splitLine = on ? { show: true, lineStyle: { color: cssv('--grid') } } : Object.assign({}, ax.splitLine, { show: false }); });
+    },
+    axisLine(opt, on) {
+      if (on) return;
+      eachAxis(opt, (ax) => { for (const part of ['axisLine', 'axisTick', 'axisLabel']) ax[part] = Object.assign({}, ax[part], { show: false }); });
+    },
+  };
+  function eachSeries(opt, fn) { (Array.isArray(opt.series) ? opt.series : opt.series ? [opt.series] : []).forEach(fn); }
+  function eachAxis(opt, fn) {
+    for (const key of ['xAxis', 'yAxis']) { const v = opt[key]; (Array.isArray(v) ? v : v ? [v] : []).forEach(fn); }
+  }
   function applyDisplay(opt, d) {
-    if (!opt || !d) return opt;
-    const axes = (a) => (Array.isArray(a) ? a : a ? [a] : []);
-    const set = (o, k, v) => { o[k] = Object.assign({}, o[k] || {}, v); };
-    if (d.legend === true && !opt.legend) opt.legend = { type: 'scroll', top: 0, left: 'center', textStyle: { color: cssv('--ink2') } };
-    if (d.legend === false) opt.legend = undefined;
-    (opt.series || []).forEach((s) => {
-      if (d.label === true) set(s, 'label', { show: true });
-      if (d.label === false) set(s, 'label', { show: false });
-      if (d.symbol === false && s.type !== 'scatter') { s.showSymbol = false; s.symbolSize = 0; }
-      if (d.symbol === true && s.type === 'line') s.showSymbol = true;
-    });
-    for (const a of axes(opt.xAxis).concat(axes(opt.yAxis))) {
-      if (d.splitLine === false) set(a, 'splitLine', { show: false });
-      if (d.splitLine === true) set(a, 'splitLine', { show: true, lineStyle: { color: cssv('--grid') } });
-      if (d.axisLine === false) { set(a, 'axisLine', { show: false }); set(a, 'axisTick', { show: false }); set(a, 'axisLabel', { show: false }); }
-    }
+    if (opt && d) for (const [k, fn] of Object.entries(DISPLAY)) if (typeof d[k] === 'boolean') fn(opt, d[k]);
     return opt;
   }
 

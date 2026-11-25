@@ -47,6 +47,14 @@ pub fn move_to_trash(p: &Path) -> Result<(), String> { imp::move_to_trash(p) }
 /// Copy a directory tree (macOS: APFS clone when possible). `dest` must not exist.
 pub fn copy_tree(src: &Path, dest: &Path) -> bool { imp::copy_tree(src, dest) }
 
+/// Mark a folder hidden like a dot-folder on macOS (Windows: FILE_ATTRIBUTE_HIDDEN, as Git does for .git). No-op elsewhere.
+pub fn hide(p: &Path) {
+    #[cfg(windows)]
+    imp::hide(p);
+    #[cfg(not(windows))]
+    let _ = p;
+}
+
 /// Windows: tie all child processes to the core's lifetime (Job Object). No-op elsewhere.
 pub fn contain_children() {
     #[cfg(windows)]

@@ -215,6 +215,13 @@ impl Server {
                 let s = self.shared(p)?;
                 let op = p["op"].as_str().ok_or("missing op")?;
                 if !UI_KERNEL_OPS.contains(&op) { return Err(format!("kernel op not allowed from the UI: {op}")); }
+                // Connection form definitions and the saved-connection list are answered here, without the kernel:
+                // the 「+」 button and the list do not wait for a kernel start (or a restart for a new port).
+                if op == "db_types" || op == "db_connections" {
+                    let types = crate::tools::db::db_types(&s.paths.resources)?;
+                    let result = if op == "db_types" { json!({"types": types}) } else { crate::tools::db::connections_for_ui(&s.workspace, &types) };
+                    return Ok(json!({"result": result, "stdout": "", "ms": 0}));
+                }
                 let mut params = p["params"].as_object().cloned().unwrap_or_default();
                 // DB connections: the password comes from the keychain here, never through the UI layer
                 // (an unsaved form's SSH secret may come along for `db_test`; it never reaches the kernel)
@@ -249,6 +256,12 @@ impl Server {
                 let deleted = (op == "db_delete").then(|| params.get("connection").and_then(|v| v.as_str()).map(String::from)).flatten();
                 let r = s.kernel.call(op, Value::Object(params), p["timeout"].as_u64().unwrap_or(300))?;
                 if let Some(id) = deleted { crate::ssh_tunnel::close(&id); }
+                // A saved / deleted connection may change the ports the sandbox must allow: restart the kernel now, in
+                // the background, so the dialog closes at once and the next test / extract does not wait for it.
+                if op == "db_save" || op == "db_delete" {
+                    let k = s.kernel.process.clone();
+                    std::thread::spawn(move || { if k.sync_db_ports() { let _ = k.ensure_started(); } });
+                }
                 Ok(json!({"result": r.result, "stdout": r.stdout, "ms": r.ms}))
             }
             // dashboard panel: one dataset of a saved dashboard (SQL comes from the spec file, not from the UI)
@@ -388,12 +401,24 @@ impl Server {
         let busy: HashSet<PathBuf> = self.busy_workspaces(&agents).into_iter().collect();
         let idle = self.core.config.lock().unwrap().settings.kernel_idle_seconds;
         self.core.reap_idle(idle, &busy);
+        // weekly automatic backup (no project data) once every kernel has been idle-stopped and no turn runs
+        if busy.is_empty() {
+            if let Some(p) = crate::backup::auto_tick(&self.core) {
+                self.notify("core/notice", json!({"topic": "backup", "text": format!("已自动备份（每周一次，保留最近 4 份）：{}", p.display())}));
+            }
+        }
         let mut seen = std::collections::HashSet::new();
         for (id, a) in agents {
             let Ok(g) = a.try_lock() else { continue };
             if !g.shared.settings.memory_enabled { continue; }
-            let Some(ctx) = g.dream_ctx() else { continue };
+            let user = g.user_dream_ctx();
+            let proj = g.dream_ctx();
             drop(g);
+            if seen.insert(user.dir.clone()) && user.dir.exists() {
+                let rep = crate::dream::run(&user, crate::dream::Trigger::Idle);
+                if rep.skipped.is_none() { (self.emitter(&id))(crate::events::notice(&rep.text().replace("记忆整理", "用户记忆整理"))); }
+            }
+            let Some(ctx) = proj else { continue };
             if !seen.insert(ctx.dir.clone()) || !ctx.dir.exists() { continue; }
             let rep = crate::dream::run(&ctx, crate::dream::Trigger::Idle);
             if rep.skipped.is_none() { (self.emitter(&id))(crate::events::notice(&rep.text())); }
@@ -417,6 +442,18 @@ impl Server {
             std::thread::sleep(std::time::Duration::from_secs(300));
             let Some(s) = weak.upgrade() else { break };
             s.idle_tick();
+        });
+        // "*local" models of the configured gateways (settings.localModelSyncHosts, else the built-in defaults): first check a minute after start, then every 6 h (a provider is synced when its
+        // last successful check is a week old; settings.localModelAutoSync = false turns it off)
+        let weak = Arc::downgrade(self);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            loop {
+                let Some(s) = weak.upgrade() else { break };
+                if crate::model_sync::auto_enabled(&ui_rpc::read_raw(&s.core.paths.app_support.join("config.json"))) { s.sync_local_models(None, false); }
+                drop(s);
+                std::thread::sleep(std::time::Duration::from_secs(6 * 3600));
+            }
         });
         for line in input.lines() {
             let Ok(line) = line else { break };

@@ -19,7 +19,7 @@ use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Security::Authorization::*;
 use windows_sys::Win32::Security::Isolation::*;
 use windows_sys::Win32::Security::*;
-use windows_sys::Win32::Storage::FileSystem::{FILE_ALL_ACCESS, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ};
+use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetVolumeInformationW, GetVolumePathNameW, FILE_ALL_ACCESS, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ};
 use windows_sys::Win32::System::JobObjects::*;
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::Threading::*;
@@ -60,7 +60,43 @@ fn capability(s: &str) -> Result<Sid, String> {
     Ok(Sid { p: sid, local: true })
 }
 
+/// read-only grants that failed (usually Program Files): log once. Write grants are never cached — the folder may have
+/// been replaced since (backup restore moves a whole .datapilot/ in, keeping the ACL of where it came from).
 static GRANTED: Mutex<Option<HashSet<(PathBuf, bool)>>> = Mutex::new(None);
+/// workspaces whose kernel could not use its own folders inside the AppContainer even after `repair`: run unisolated
+static RELAXED: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
+
+fn norm(p: &Path) -> PathBuf { PathBuf::from(p.to_string_lossy().replace('/', "\\")) }
+/// volumes already reported as unusable for the AppContainer (log once)
+static NO_ACL: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+const DRIVE_REMOTE: u32 = 4;
+const FILE_PERSISTENT_ACLS: u32 = 0x8;
+
+/// Why an AppContainer cannot use `path` at all, if so: its volume keeps no ACLs (exFAT / FAT32 USB drives, some
+/// virtual drives — lowbox tokens are denied on them whatever we grant) or is a network share (needs credentials the
+/// container does not have). The kernel then failed with "PermissionError: Access is denied: 'E:\\'".
+pub fn volume_problem(path: &Path) -> Option<String> {
+    let w = wide_path(path);
+    let mut root = [0u16; 520];
+    unsafe {
+        if GetVolumePathNameW(w.as_ptr(), root.as_mut_ptr(), root.len() as u32) == 0 { return None; }
+        let n = root.iter().position(|&c| c == 0).unwrap_or(0);
+        let rs = String::from_utf16_lossy(&root[..n]);
+        // a whole drive as project (E:\\): an inheritable grant there would rewrite the ACLs of every file on the drive
+        if path.to_string_lossy().trim_end_matches(['\\', '/']).eq_ignore_ascii_case(rs.trim_end_matches(['\\', '/'])) {
+            return Some(format!("{rs} 是整个磁盘的根目录"));
+        }
+        if GetDriveTypeW(root.as_ptr()) == DRIVE_REMOTE { return Some(format!("{rs} 是网络驱动器")); }
+        let (mut flags, mut fs) = (0u32, [0u16; 64]);
+        if GetVolumeInformationW(root.as_ptr(), null_mut(), 0, null_mut(), null_mut(), &mut flags, fs.as_mut_ptr(), fs.len() as u32) == 0 { return None; }
+        if flags & FILE_PERSISTENT_ACLS == 0 {
+            let k = fs.iter().position(|&c| c == 0).unwrap_or(0);
+            return Some(format!("{rs} 是 {} 格式，不支持文件权限", String::from_utf16_lossy(&fs[..k])));
+        }
+    }
+    None
+}
 
 /// Does the DACL already allow `sid` the rights in `need` (an explicit allow ACE)?
 unsafe fn has_ace(dacl: *const ACL, sid: PSID, need: u32) -> bool {
@@ -70,16 +106,18 @@ unsafe fn has_ace(dacl: *const ACL, sid: PSID, need: u32) -> bool {
         if GetAce(dacl, i, &mut ace) == 0 || ace.is_null() { continue; }
         let a = ace as *const ACCESS_ALLOWED_ACE;
         if (*a).Header.AceType != 0 { continue; }   // ACCESS_ALLOWED_ACE_TYPE
+        if (*a).Header.AceFlags & 0x08 != 0 { continue; }   // INHERIT_ONLY_ACE: does not apply to the folder itself
         let ace_sid = std::ptr::addr_of!((*a).SidStart) as PSID;
         if EqualSid(ace_sid, sid) != 0 && (*a).Mask & need == need { return true; }
     }
     false
 }
 
-/// Add an inheritable allow ACE for the container on `path` (skipped when already present).
-fn grant(sid: PSID, path: &Path, write: bool) -> Result<(), String> {
-    let key = (path.to_path_buf(), write);
-    if GRANTED.lock().unwrap().as_ref().map(|s| s.contains(&key)).unwrap_or(false) { return Ok(()); }
+/// Add an inheritable allow ACE for the container on `path` (skipped when already present). `tree`: also reset every
+/// descendant to inherit it (protected / foreign ACLs below are replaced; explicit ACEs there are kept) — only used on
+/// DataPilot's own folders (workspace, tmp, outputs).
+fn grant(sid: PSID, path: &Path, write: bool, tree: bool) -> Result<(), String> {
+    let path = &norm(path);
     let need = if write { FILE_ALL_ACCESS } else { FILE_GENERIC_READ | FILE_GENERIC_EXECUTE };
     let w = wide_path(path);
     unsafe {
@@ -87,7 +125,7 @@ fn grant(sid: PSID, path: &Path, write: bool) -> Result<(), String> {
         let mut sd: PSECURITY_DESCRIPTOR = null_mut();
         let r = GetNamedSecurityInfoW(w.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, null_mut(), null_mut(), &mut dacl, null_mut(), &mut sd);
         if r != 0 { return Err(format!("{}: 读取权限失败（{r}）", path.display())); }
-        if !has_ace(dacl, sid, need) {
+        if tree || !has_ace(dacl, sid, need) {
             let ea = EXPLICIT_ACCESS_W {
                 grfAccessPermissions: need, grfAccessMode: GRANT_ACCESS, grfInheritance: SUB_CONTAINERS_AND_OBJECTS_INHERIT,
                 Trustee: TRUSTEE_W { pMultipleTrustee: null_mut(), MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE, TrusteeForm: TRUSTEE_IS_SID,
@@ -96,14 +134,34 @@ fn grant(sid: PSID, path: &Path, write: bool) -> Result<(), String> {
             let mut new_acl: *mut ACL = null_mut();
             let r = SetEntriesInAclW(1, &ea, dacl, &mut new_acl);
             if r != 0 { LocalFree(sd as _); return Err(format!("{}: 设置权限失败（{r}）", path.display())); }
-            let r = SetNamedSecurityInfoW(w.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, null_mut(), null_mut(), new_acl, null());
+            let r = if tree {
+                TreeSetNamedSecurityInfoW(w.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION, null_mut(), null_mut(),
+                                          new_acl, null(), TREE_SEC_INFO_RESET_KEEP_EXPLICIT, None, ProgressInvokeNever, null())
+            } else { SetNamedSecurityInfoW(w.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, null_mut(), null_mut(), new_acl, null()) };
             LocalFree(new_acl as _);
             if r != 0 { LocalFree(sd as _); return Err(format!("{}: 写入权限失败（{r}）", path.display())); }
         }
         LocalFree(sd as _);
     }
-    GRANTED.lock().unwrap().get_or_insert_with(HashSet::new).insert(key);
     Ok(())
+}
+
+/// The sandboxed kernel was denied its own folders: give the container access to the whole workspace / tmp / outputs
+/// trees again, replacing whatever ACLs ended up below (moved-in folders, protected ACLs).
+pub fn repair(p: &Policy) -> Result<(), String> {
+    let sid = container_sid()?;
+    for d in [&p.workspace, &p.tmp].into_iter().chain(p.write_roots.iter()) { grant(sid.p, d, true, true)?; }
+    Ok(())
+}
+
+/// Run this workspace without the AppContainer from now on (until DataPilot restarts). False when it already was.
+pub fn relax(p: &Policy, why: &str) -> bool {
+    let new = RELAXED.lock().unwrap().get_or_insert_with(HashSet::new).insert(norm(&p.workspace));
+    if new {
+        eprintln!("sandbox: 沙箱内无法访问工作区，改为不隔离运行（{}）：{why}", p.workspace.display());
+        crate::log::warn("sandbox_off", "", &[("why", format!("denied: {why}")), ("ws", p.workspace.display().to_string())]);
+    }
+    new
 }
 
 fn sysroot() -> String { std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into()) }
@@ -219,12 +277,34 @@ unsafe fn pipe(parent: usize) -> Result<[HANDLE; 2], String> {
 
 pub fn spawn(p: &Policy, cmd: &[String], env: &[(String, String)], cwd: &Path, stdin_piped: bool) -> Result<Pipes, String> {
     let sid = container_sid()?;
-    for d in [&p.workspace, &p.tmp].into_iter().chain(p.write_roots.iter()) {
-        let _ = std::fs::create_dir_all(d);
-        grant(sid.p, d, true)?;
+    for d in [&p.workspace, &p.tmp].into_iter().chain(p.write_roots.iter()) { let _ = std::fs::create_dir_all(d); }
+    // project / workspace on a volume the container cannot use: run without the AppContainer (still in the Job Object,
+    // with the restricted environment) instead of a kernel that cannot open its own workspace
+    let relaxed = RELAXED.lock().unwrap().as_ref().map(|s| s.contains(&norm(&p.workspace))).unwrap_or(false);
+    let mut problem = if relaxed { None } else {
+        [&p.workspace, &p.tmp].into_iter().chain(p.write_roots.iter()).chain(p.read_roots.iter()).find_map(|d| volume_problem(d))
+    };
+    // write access cannot be granted (folder owned by another account / administrators): unisolated rather than no kernel
+    if problem.is_none() && !relaxed {
+        for d in [&p.workspace, &p.tmp].into_iter().chain(p.write_roots.iter()) {
+            if let Err(e) = grant(sid.p, d, true, false) { problem = Some(format!("无法为沙箱授权：{e}")); break; }
+        }
     }
-    for d in p.read_roots.iter().chain([&p.paths.python_root, &p.paths.resources]) {
-        if let Err(e) = grant(sid.p, d, false) { eprintln!("sandbox: {e}"); }
+    if let Some(why) = &problem {
+        if NO_ACL.lock().unwrap().get_or_insert_with(HashSet::new).insert(why.clone()) {
+            eprintln!("sandbox: {why}，Windows 沙箱无法访问，改为不隔离运行（{}）", p.workspace.display());
+            crate::log::warn("sandbox_off", "", &[("why", why.clone()), ("ws", p.workspace.display().to_string())]);
+        }
+    }
+    let isolated = problem.is_none() && !relaxed;
+    for d in p.read_roots.iter().chain([&p.paths.python_root, &p.paths.resources]).filter(|_| isolated) {
+        // usually fails under Program Files (not ours to change) and is harmless there (ALL APPLICATION PACKAGES may read):
+        // log once per folder, not on every kernel start
+        if GRANTED.lock().unwrap().as_ref().map(|s| s.contains(&(d.to_path_buf(), false))).unwrap_or(false) { continue; }
+        if let Err(e) = grant(sid.p, d, false, false) {
+            let mut g = GRANTED.lock().unwrap();
+            if g.get_or_insert_with(HashSet::new).insert((d.to_path_buf(), false)) { eprintln!("sandbox: {e}（只读授权失败；若该目录已对所有应用包可读则无影响）"); }
+        }
     }
     let caps: Vec<Sid> = if p.network || !p.db_ports.is_empty() {
         vec![capability(CAP_INTERNET_CLIENT)?, capability(CAP_PRIVATE_NETWORK)?]
@@ -252,8 +332,8 @@ pub fn spawn(p: &Policy, cmd: &[String], env: &[(String, String)], cwd: &Path, s
             close_all(&[sin[0], sin[1], sout[0], sout[1], serr[0], serr[1]]);
             return Err(format!("InitializeProcThreadAttributeList: {}", last_err()));
         }
-        let ok1 = UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize, &sc as *const _ as _,
-                                            std::mem::size_of::<SECURITY_CAPABILITIES>(), null_mut(), null());
+        let ok1 = if !isolated { 1 } else { UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES as usize, &sc as *const _ as _,
+                                            std::mem::size_of::<SECURITY_CAPABILITIES>(), null_mut(), null()) };
         // only the three pipe ends are inherited, whatever else happens to be inheritable in this process
         let ok2 = UpdateProcThreadAttribute(list, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize, child_ends.as_ptr() as _,
                                             std::mem::size_of_val(&child_ends), null_mut(), null());

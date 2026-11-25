@@ -15,7 +15,7 @@ OFFICIAL = ["openai", "anthropic", "gemini", "vertex_ai-language-models", "zai",
 VENDOR_DOT = re.compile(r"^(?:[a-z]{2,7}\.)?(?:anthropic|deepseek|openai|meta|qwen|mistral|cohere|amazon|ai21|moonshot|moonshotai|zai|google|minimax|writer)\.")
 
 
-# DKU gateway's local deployments, confirmed by the user (2026-11-18)
+# local deployments of a gateway, confirmed by the user (2026-11-18)
 LOCAL_OVERRIDES = {"qwen3.8-27b-local": [262144, 131072]}
 
 

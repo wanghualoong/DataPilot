@@ -127,7 +127,7 @@ function DBForm({ types, initial, onDone }: { types: DBType[]; initial: Form; on
         <div className="row end">
           <button disabled={busy} onClick={() => run(true)}>{L("测试连接", "Test")}</button>
           <button onClick={() => onDone(false)}>{L("取消", "Cancel")}</button>
-          <button className="primary" disabled={busy} onClick={() => run(false)}>{L("保存", "Save")}</button>
+          <button className="primary" disabled={busy} onClick={() => run(false)}>{busy ? L("保存中…", "Saving…") : L("保存", "Save")}</button>
         </div>
       </div>
     </div>
@@ -206,7 +206,7 @@ export function DBConnections({ onChange }: { onChange: () => void }) {
               }],
             ]} />
           </div>
-          <div className="muted small mono">{c.path ?? `${c.user ?? ""}@${c.host ?? ""}:${c.port_effective ?? ""}/${c.database ?? ""}`}</div>
+          <div className="muted small">{c.path ?? `${c.user ?? ""}@${c.host ?? ""}:${c.port_effective ?? ""}/${c.database ?? ""}`}</div>
           {c.extracts?.length > 0 && <div className="muted small">{L("已抽取：", "Extracted: ")}{c.extracts.map((e: any) => e.as).join(", ")}</div>}
           <Status msg={status[c.id]} />
         </div>

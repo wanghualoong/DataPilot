@@ -43,6 +43,39 @@ pub fn fts_query(text: &str) -> Option<String> {
 }
 
 impl Index {
+    /// Consistent copy of the index (SQLite online backup) at `dst`.
+    pub fn snapshot_to(&self, dst: &Path) -> Result<(), String> {
+        self.db.lock().unwrap().backup(rusqlite::DatabaseName::Main, dst, None).map_err(|e| format!("index.sqlite 快照失败：{e}"))
+    }
+
+    /// Replace the index with a backup copy (SQLite online restore).
+    pub fn restore_from(&self, src: &Path) -> Result<(), String> {
+        let mut db = self.db.lock().unwrap();
+        db.restore(rusqlite::DatabaseName::Main, src, None::<fn(rusqlite::backup::Progress)>).map_err(|e| format!("index.sqlite 恢复失败：{e}"))?;
+        db.execute_batch(SCHEMA).map_err(|e| e.to_string())
+    }
+
+    /// Merge a backup copy, best effort (the index can be rebuilt): new chats with their search text, saved
+    /// question → SQL pairs, datasets. Existing rows are kept.
+    pub fn merge_from(&self, src: &Path) {
+        let db = self.db.lock().unwrap();
+        if db.execute("ATTACH DATABASE ?1 AS b", [src.to_string_lossy().to_string()]).is_err() { return; }
+        let ids: Vec<String> = match db.prepare("SELECT id FROM b.sessions WHERE id NOT IN (SELECT id FROM main.sessions)") {
+            Ok(mut st) => { let v = st.query_map([], |r| r.get::<_, String>(0)).map(|m| m.flatten().collect()).unwrap_or_default(); v }
+            Err(_) => vec![],
+        };
+        for id in &ids {
+            let _ = db.execute("INSERT OR IGNORE INTO main.sessions(id, title, created, updated, project_root, archived) SELECT id, title, created, updated, project_root, archived FROM b.sessions WHERE id=?1", [id]);
+            let _ = db.execute("INSERT INTO main.messages_fts(content, session_id, msg_id) SELECT content, session_id, msg_id FROM b.messages_fts WHERE session_id=?1", [id]);
+        }
+        let _ = db.execute("INSERT OR IGNORE INTO main.qsql(dataset_fp, question, sql, verified, uses, session_id, created, last_used)
+                            SELECT dataset_fp, question, sql, verified, uses, session_id, created, last_used FROM b.qsql", []);
+        let _ = db.execute("INSERT INTO main.qsql_fts(question, pair_id) SELECT question, id FROM main.qsql WHERE id NOT IN (SELECT pair_id FROM main.qsql_fts)", []);
+        let _ = db.execute("INSERT OR IGNORE INTO main.datasets(fp, name, columns_json, first_seen, last_seen, sessions)
+                            SELECT fp, name, columns_json, first_seen, last_seen, sessions FROM b.datasets", []);
+        let _ = db.execute("DETACH DATABASE b", []);
+    }
+
     pub fn open(path: &Path) -> Result<Index, String> {
         if let Some(p) = path.parent() { let _ = std::fs::create_dir_all(p); }
         let open = || -> rusqlite::Result<Connection> { let c = Connection::open(path)?; c.execute_batch(SCHEMA)?; Ok(c) };

@@ -29,6 +29,25 @@ const READ_ONLY: &[&str] = &["ax_snapshot", "screenshot", "wait", "terminate"];
 pub const BLOCKED_BUNDLES: &[&str] = &["com.apple.keychainaccess", "com.apple.systempreferences", "com.apple.Passwords",
                                        "com.1password.1password", "com.agilebits.onepassword7", "com.bitwarden.desktop"];
 
+/// Web browsers: the computer tool refuses to drive them — web pages go through the browser tool (DataPilot's own Chrome
+/// with real DOM access: iframes, dropdowns, downloads, waits), never the user's everyday browser.
+pub const BROWSER_BUNDLES: &[&str] = &["com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary",
+    "com.google.chrome.for.testing", "org.chromium.Chromium", "com.apple.Safari", "com.apple.SafariTechnologyPreview", "com.microsoft.edgemac",
+    "com.microsoft.edgemac.Beta", "org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "company.thebrowser.Browser", "com.brave.Browser",
+    "com.operasoftware.Opera", "com.vivaldi.Vivaldi"];
+pub const USE_BROWSER: &str = "computer 工具不能操作浏览器（Chrome / Safari / Edge 等）。网页任务请改用 browser 工具：它在 DataPilot 专用的 Chrome 窗口里按元素操作（支持登录后继续、iframe、下拉框、弹窗、下载、等待），不要再尝试用 computer 打开或操作浏览器。/ The computer tool does not operate web browsers: use the browser tool for web pages.";
+
+/// Is this app (name or bundle id) a web browser?
+pub fn is_browser(name_or_bundle: &str) -> bool {
+    let l = name_or_bundle.trim().trim_end_matches(".app").to_lowercase();
+    if l.is_empty() { return false; }
+    BROWSER_BUNDLES.iter().any(|b| b.to_lowercase() == l)
+        || ["chrome", "chromium", "safari", "firefox", "浏览器", "browser"].iter().any(|k| l.contains(k))
+        || ["arc", "edge", "microsoft edge", "brave", "opera", "vivaldi"].contains(&l.as_str())
+}
+
+fn browser_in_front() -> bool { front_app().map(|a| is_browser(&a.bundle) || is_browser(&a.name)).unwrap_or(false) }
+
 fn risk(a: &Value) -> Risk { if READ_ONLY.contains(&a["action"].as_str().unwrap_or("")) { Risk::ReadOnly } else { Risk::External } }
 
 fn summary(a: &Value) -> String {
@@ -335,6 +354,7 @@ fn computer(a: &Value, c: &ToolCtx) -> Result<ToolResult, String> {
     };
     let need = |p: Option<CGPoint>| p.ok_or_else(|| "coordinate [x, y] required".to_string());
     let r = match act.as_str() {
+        "ax_snapshot" if browser_in_front() => ToolResult::err(USE_BROWSER),
         "ax_snapshot" => ToolResult::ok(ax_snapshot(250)?),
         "screenshot" => {
             let (png, w, h) = screenshot(1280)?;
@@ -350,6 +370,8 @@ fn computer(a: &Value, c: &ToolCtx) -> Result<ToolResult, String> {
         "terminate" => ToolResult::ok(format!("任务结束：{}", a["status"].as_str().unwrap_or("success"))),
         _ => {
             guard_front(c)?;
+            if act == "open_app" && is_browser(a["text"].as_str().unwrap_or("")) { return Ok(ToolResult::err(USE_BROWSER)); }
+            if act != "open_app" && browser_in_front() { return Ok(ToolResult::err(USE_BROWSER)); }
             match act.as_str() {
                 "ax_press" => after(ax_press(a["ref"].as_str().unwrap_or(""))?),
                 "ax_set_value" => after(ax_set_value(a["ref"].as_str().unwrap_or(""), a["text"].as_str().unwrap_or(""))?),
@@ -395,6 +417,8 @@ mod tests {
 
     #[test]
     fn pure_helpers() {
+        for b in ["Google Chrome", "com.google.Chrome", "Safari", "Microsoft Edge", "Arc", "Firefox", "Chromium"] { assert!(is_browser(b), "{b}"); }
+        for b in ["Microsoft Excel", "Archive Utility", "Finder", "Numbers", "DataPilot", ""] { assert!(!is_browser(b), "{b}"); }
         assert_eq!(risk(&json!({"action": "ax_snapshot"})), Risk::ReadOnly);
         assert_eq!(risk(&json!({"action": "left_click"})), Risk::External);
         assert_eq!(key_spec(&["cmd".into(), "S".into()]).unwrap(), (1, 0x100000));

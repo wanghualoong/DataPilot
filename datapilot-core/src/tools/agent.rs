@@ -230,9 +230,12 @@ fn read_file(a: &Value, c: &ToolCtx) -> Result<ToolResult, String> {
     let ext = u.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
     let off = (a["offset"].as_i64().unwrap_or(1).max(1)) as usize;
     let fname = u.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
-    if ["docx", "pptx", "pdf", "xlsx", "xlsm"].contains(&ext.as_str()) {
+    if ["docx", "pptx", "pdf", "xlsx", "xlsm"].contains(&ext.as_str()) || crate::docparse::is_image(&ext) {
         let mut p = json!({"path": u.display().to_string()});
         if let Some(pg) = a["pages"].as_str() { p["pages"] = json!(pg); }
+        // scanned pages / images: text from the document-parse service (only pages without a text layer are sent)
+        let ocr = if crate::docparse::handles(&ext) { crate::docparse::for_tool(c, &u, a["pages"].as_str())? } else { None };
+        if let Some(o) = &ocr { p["ocr"] = o.clone(); }
         let r = c.kernel("extract_text", p, 300)?;
         let t = sv(&r, "text");
         let lines: Vec<&str> = t.split('\n').collect();
@@ -240,6 +243,11 @@ fn read_file(a: &Value, c: &ToolCtx) -> Result<ToolResult, String> {
         let slice = lines.iter().skip(off - 1).take(lim).cloned().collect::<Vec<_>>().join("\n");
         let mut out = format!("[{fname} → Markdown，{} 字符]\n{slice}", r["chars"].as_i64().unwrap_or(t.chars().count() as i64));
         if lines.len() > off - 1 + lim || r["truncated"] == true { out += &format!("\n…({} 行；用 offset/limit 或 pages 继续读取)", lines.len()); }
+        if let Some(o) = &ocr {
+            out = format!("{}\n{out}", crate::docparse::describe(o));
+            if let Some(n) = crate::docparse::review_note(&r["ocr_review"]) { out += &format!("\n\n{n}"); }
+            return Ok(ToolResult::with(out, json!({"kind": "ocr", "ocr": crate::docparse::card(&u, o, &r["ocr_review"])})));
+        }
         return Ok(ToolResult::ok(out));
     }
     let Ok(d) = std::fs::read(&u) else { return Ok(ToolResult::err(format!("cannot read {fname}"))) };

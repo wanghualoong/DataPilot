@@ -25,21 +25,25 @@ export function TodoPanel() {
 }
 
 const DATA_EXT = /\.(csv|tsv|xlsx|xls|parquet|json|txt)$/i;
+const SCAN_EXT = /\.(pdf|png|jpe?g|webp|bmp|tiff?)$/i;
 
 export function FilesPanel() {
   const send = useApp((s) => s.send);
   const running = useApp((s) => (s.selected ? !!s.chats[s.selected]?.running : false));
   const [f, , reload] = useLoad(async () => core.request("files/list", { session: sid() }));
   const [filter, setFilter] = useState("");
+  const [sel, setSel] = useState<string>();
   const analyze = (rel: string) => send(L(`请导入项目文件 ${rel} 并概览这份数据（行数、字段含义、数据质量、可以做的分析）。`, `Import the project file ${rel} and give an overview (rows, field meanings, data quality, possible analyses).`));
   const row = (label: string, abs: string, rel?: string) => (
-    <div key={abs} className="irow click" onDoubleClick={() => openPath(abs)} title={abs}>
+    <div key={abs} className={"irow click" + (sel === abs ? " on" : "")} onClick={() => setSel(abs)} onDoubleClick={() => openPath(abs)}
+      title={`${abs}\n${L("双击打开", "Double-click to open")}`}>
       <span className="grow small">{DATA_EXT.test(label) ? <Table2 size={13} className="muted" /> : <FileText size={13} className="muted" />} {label}</span>
       {rel && DATA_EXT.test(rel) && <IconBtn icon={Sparkles} size={13} title={L("在对话中分析", "Analyze in chat")} disabled={running} onClick={() => analyze(rel)} />}
       <Menu label="⋯" items={[
         [L("打开", "Open"), () => openPath(abs)],
         [L("在访达 / 资源管理器中显示", "Reveal"), () => reveal(abs)],
         [L("复制路径", "Copy path"), () => navigator.clipboard?.writeText(rel ?? abs)],
+        ...(SCAN_EXT.test(abs) ? [[L("原页对照（识别结果）", "Compare page with OCR text"), () => useApp.setState({ pageView: { path: abs, page: 1 } })] as [string, () => void]] : []),
       ]} />
     </div>
   );
@@ -53,12 +57,13 @@ export function FilesPanel() {
   return (
     <div className="ipanel">
       <div className="row pad small">
-        <span className="grow muted mono">{root ?? f.workspace_dir}</span>
+        <span className="grow muted">{root ?? f.workspace_dir}</span>
         <IconBtn icon={FolderOpen} size={13} title={L("在访达 / 资源管理器中显示", "Reveal")}className="link" onClick={() => reveal(root ?? f.workspace_dir)} />
         <IconBtn icon={RefreshCw} size={13} title={L("刷新", "Refresh")} onClick={reload} />
       </div>
       <div className="muted xs pad">{root ? L("原始文件只读；Agent 的产出写入 outputs/；数据库与对话记录在 .datapilot/。", "Originals are read-only; outputs go to outputs/; DB and chats live in .datapilot/.")
         : L("提示：在侧栏“新建项目”选择一个文件夹，即可像 Codex 一样在项目里对话，文件与产出都保存在该文件夹。", "Tip: create a project (sidebar) to work inside a folder, like Codex.")}</div>
+      <div className="muted xs pad">{L("单击选中，双击用默认程序打开；⋯ 菜单里可在访达 / 资源管理器中显示。", "Click to select, double-click to open; ⋯ to reveal in Finder / Explorer.")}</div>
       {root && <div className="pad"><input className="wide" placeholder={L("筛选文件", "Filter files")} value={filter} onChange={(e) => setFilter(e.target.value)} /></div>}
       {root && (
         <>
@@ -88,10 +93,10 @@ export function BrowserPanel() {
   return (
     <div className="ipanel">
       <div className="row pad small">
-        <span className="grow mono">{last.url}</span>
+        <span className="grow">{last.url}</span>
         {last.url && <a href={last.url} target="_blank" rel="noreferrer noopener">{L("在浏览器中打开", "Open in browser")}</a>}
       </div>
-      <div className="muted small pad">{L("Agent 在后台浏览器中操作；这里显示每一步后的页面截图。需要登录时请在浏览器中打开。", "The agent works in a background browser; this shows the page after each step.")}</div>
+      <div className="muted small pad">{L("Agent 在 DataPilot 专用的 Chrome 窗口中操作（与日常使用的 Chrome 隔离），你可以在那个窗口里直接看、登录或接管；这里显示每一步后的页面截图。", "The agent works in DataPilot's own Chrome window (separate from your everyday Chrome) — watch, log in or take over there; this shows the page after each step.")}</div>
       {img && <img className="shot" src={img} alt="browser" />}
     </div>
   );

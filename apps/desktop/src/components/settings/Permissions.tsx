@@ -1,4 +1,5 @@
 import { IconBtn } from "../ui";
+import { imeEnter } from "../../ime";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { L } from "../../i18n";
@@ -39,7 +40,7 @@ export function Permissions() {
       <h4>{L("添加规则", "Add rule")}</h4>
       <div className="row">
         <select style={{ flex: "none" }} value={beh} onChange={(e) => setBeh(e.target.value as any)}>{["allow", "ask", "deny"].map((b) => <option key={b} value={b}>{label(b)}</option>)}</select>
-        <input placeholder="web_fetch(domain:weather.com.cn)  ·  bash(git status *)  ·  mcp__playwright__*" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <input placeholder="web_fetch(domain:weather.com.cn)  ·  bash(git status *)  ·  mcp__playwright__*" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !imeEnter(e) && add()} />
         <button disabled={!text.trim()} onClick={add}>{L("添加", "Add")}</button>
       </div>
       {err && <div className="notice err small">{err}</div>}

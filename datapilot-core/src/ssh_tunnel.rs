@@ -137,17 +137,20 @@ pub fn ensure_spec(id: &str, sp: Spec, secret: Option<&str>, app_support: &Path)
     while t0.elapsed() < Duration::from_secs(25) {
         if port_open(sp.local_port) {
             m.insert(id.to_string(), (child, sp.clone()));
+            crate::log::info("ssh_tunnel", "", &[("id", id.to_string()), ("ok", "1".into()), ("ms", t0.elapsed().as_millis().to_string())]);
             return Ok(sp.local_port);
         }
         if let Ok(Some(_)) = child.try_wait() {
             let mut err = String::new();
             if let Some(mut e) = child.stderr.take() { let _ = e.read_to_string(&mut err); }
             let err: String = err.lines().filter(|l| !l.trim().is_empty() && !l.contains("Permanently added")).collect::<Vec<_>>().join("；");
+            crate::log::warn("ssh_tunnel", "", &[("id", id.to_string()), ("ok", "0".into()), ("ms", t0.elapsed().as_millis().to_string()), ("err", crate::log::err_text(&err))]);
             return Err(format!("SSH 隧道建立失败：{}", if err.is_empty() { "ssh 已退出".into() } else { crate::text::prefix(&err, 400) }));
         }
         std::thread::sleep(Duration::from_millis(150));
     }
     kill(child);
+    crate::log::warn("ssh_tunnel", "", &[("id", id.to_string()), ("ok", "0".into()), ("err", "timeout 25s".into())]);
     Err("SSH 隧道建立超时（25 秒）：检查 SSH 主机、端口和网络".into())
 }
 

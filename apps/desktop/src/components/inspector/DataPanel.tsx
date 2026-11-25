@@ -163,7 +163,7 @@ export function DataPanel() {
               <div key={r.id} className="irel">
                 <div className="irow">
                   <span className={"ibadge " + cls}>{b}</span>
-                  <span className="grow small mono ell">{r.from_table}.{r.from_column} → {r.to_table}.{r.to_column}</span>
+                  <span className="grow small ell">{r.from_table}.{r.from_column} → {r.to_table}.{r.to_column}</span>
                   <Menu items={[
                     ...(r.status !== "confirmed" ? [[L("确认", "Confirm"), () => act("confirm")] as [string, () => void]] : []),
                     [L("否决（不再提示）", "Reject (never suggest again)"), () => act("reject")],

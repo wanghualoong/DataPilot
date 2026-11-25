@@ -20,7 +20,7 @@
 ## 代理
 Chrome 默认跟随系统代理（含 PAC）；全局代理设为“直连”传 `--no-proxy-server`，“自定义”传 `--proxy-server=`。
 
-## 实测（2026-11-09，DKU 网络）
+## 实测（2026-11-09，单位网络）
 - 不改 UA 的 headless Chrome 会被 Google 判为机器人；带真实 UA + 关闭 AutomationControlled 后正常返回 10 条结果。
 - `DP_LIVE_CHROME=1 swift test --filter liveChromeSearch`：Google 8 条（首次启动约 15s），Bing 8 条。
 - 已知限制：部分 `/goto` 链接解析失败时退化为站点首页（cite 域名）；Google 改版时只需改 `WebSearch.googleExtractJS` / `parseGoogleHTML`。

@@ -4,7 +4,7 @@ import { KeyRound, LoaderCircle } from "lucide-react";
 import { useApp } from "../store";
 import { core } from "../transport";
 import { L } from "../i18n";
-import { PRESETS, defaultLocalModel, isLocalHost, modelKind, normURL, suffixLocalMarks } from "../models";
+import { defaultLocalModel, isLocalHost, modelKind, normURL, presets, suffixLocalMarks } from "../models";
 import { patch, rid } from "./settings/common";
 import { NewAPILogin } from "./settings/NewAPILogin";
 import { ModelPicker } from "./settings/Providers";
@@ -25,8 +25,10 @@ async function ensureMainModel(pid: string) {
 
 export function Onboarding() {
   const st = useApp();
-  const [preset, setPreset] = useState("custom");
-  const [baseURL, setBaseURL] = useState("");
+  // first run: the first preset of the built-in defaults is selected
+  const PRESETS = presets(st.defaults);
+  const [preset, setPreset] = useState<string>(PRESETS[0].id);
+  const [baseURL, setBaseURL] = useState<string>(PRESETS[0].baseURL);
   const [key, setKey] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [main, setMain] = useState("");
@@ -35,7 +37,7 @@ export function Onboarding() {
   const [busy, setBusy] = useState(false);
   const [pid] = useState(rid);
   const [login, setLogin] = useState(false);
-  const pr = PRESETS.find((p) => p.id === preset)!;
+  const pr = PRESETS.find((p) => p.id === preset) ?? PRESETS[0];
   const provider = () => ({ id: pid, name: pr.providerName, baseURL: baseURL.trim(), proxyMode: pr.proxyMode, extraHeaders: {} });
   const close = () => useApp.setState({ onboarding: false });
 
@@ -85,16 +87,16 @@ export function Onboarding() {
         <h2>{L("欢迎使用 DataPilot", "Welcome to DataPilot")}</h2>
         <p className="muted">{L("连接你的 New API（或 vLLM / Ollama 等 OpenAI 兼容服务）。", "Connect your New API (or any OpenAI-compatible endpoint such as vLLM / Ollama).")}</p>
         <label className="fld"><span>{L("预设", "Preset")}</span>
-          <select value={preset} onChange={(e) => { setPreset(e.target.value); setBaseURL(PRESETS.find((p) => p.id === e.target.value)!.baseURL); }}>
+          <select value={preset} onChange={(e) => { setPreset(e.target.value); setBaseURL(PRESETS.find((p) => p.id === e.target.value)?.baseURL ?? ""); }}>
             {PRESETS.map((p) => <option key={p.id} value={p.id}>{L(p.zh, p.en)}</option>)}
           </select>
         </label>
         <label className="fld"><span>Base URL</span><input value={baseURL} placeholder="https://your-newapi.example.com/v1" onChange={(e) => setBaseURL(e.target.value)} /></label>
         <label className="fld"><span>API Key</span><input type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)} /></label>
-        {(preset === "dku" || preset === "custom") && (
+        {pr.login && (
           <div className="row">
             <button disabled={busy || !baseURL.trim()} onClick={async () => { await saveProvider(); setLogin(true); }}><KeyRound {...ic} size={13} /> {L("登录并选择 Key…", "Log in & choose key…")}</button>
-            <span className="muted small">{preset === "dku" ? L("用 Duke NetID 登录，直接从你的 Key 列表里选。", "Log in with Duke NetID and pick from your keys.") : L("New API 网关可直接登录选 Key。", "New API gateways: log in and pick a key.")}</span>
+            <span className="muted small">{pr.loginHint ? L(pr.loginHint.zh, pr.loginHint.en) : L("New API 网关可直接登录选 Key。", "New API gateways: log in and pick a key.")}</span>
           </div>
         )}
         <div className="row">
@@ -120,6 +122,7 @@ export function Onboarding() {
 
 export function QuickLogin() {
   const config = useApp((s) => s.config);
+  const PRESETS = presets(useApp((s) => s.defaults));
   const close = () => useApp.setState({ quickLogin: false });
   // existing remote providers first, then presets with a URL (no local ones)
   const choices: { name: string; url: string }[] = [];
@@ -134,8 +137,8 @@ export function QuickLogin() {
     const url = baseURL.trim();
     const ex = (config?.providers ?? []).find((p: any) => normURL(p.baseURL) === normURL(url));
     const pr = PRESETS.find((p) => p.baseURL && normURL(p.baseURL) === normURL(url));
-    setProv(ex ? { ...ex, name: ex.name === "New API" ? "NetID" : ex.name }
-               : { id: rid(), name: pr?.providerName ?? "NetID", baseURL: url, proxyMode: pr?.proxyMode ?? "global", extraHeaders: {} });
+    setProv(ex ? { ...ex, name: ex.name === "New API" && pr ? pr.providerName : ex.name }
+               : { id: rid(), name: pr?.providerName ?? "New API", baseURL: url, proxyMode: pr?.proxyMode ?? "global", extraHeaders: {} });
     setStep("login");
   };
   const used = async () => {
@@ -149,7 +152,8 @@ export function QuickLogin() {
     <div className="modal" onClick={close}>
       <div className="modalbox" onClick={(e) => e.stopPropagation()}>
         <h3>{L("登录并选择 Key", "Log in & choose a key")}</h3>
-        <div className="muted small">{L("选择要登录的 New API 网关（DKU 用户选 DKU AI Gateway，用 Duke NetID 登录）。", "Choose the New API gateway to log in to (DKU users: DKU AI Gateway, log in with Duke NetID).")}</div>
+        <div className="muted small">{L("选择要登录的 New API 网关，用网关账号登录（密码、SSO / OIDC 等）。", "Choose the New API gateway and log in with your gateway account (password, SSO / OIDC …).")}
+          {(() => { const h = PRESETS.find((p) => p.baseURL && normURL(p.baseURL) === normURL(baseURL))?.loginHint; return h ? <> {L(h.zh, h.en)}</> : null; })()}</div>
         {choices.length > 0 && (
           <label className="fld"><span>{L("网关", "Gateway")}</span>
             <select value={choices.some((c) => c.url === baseURL) ? baseURL : ""} onChange={(e) => setBaseURL(e.target.value)}>

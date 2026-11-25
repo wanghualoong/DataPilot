@@ -87,13 +87,14 @@ pub fn fmt_g4(n: f64) -> String {
     }
 }
 
-/// A number the way the Swift core renders table cells (integers without decimals, else %.4g).
+/// A table cell number for the model / exports: integers as they are, |n| ≥ 1 with up to 4 decimals (amounts keep
+/// their cents: 3505.5688, -70980000.12 — %.4g used to print 3506 / -7.098e+07 and reconciliations lost the decimals),
+/// small fractions with 4 significant digits, huge values in scientific notation.
 pub fn fmt_num(n: f64) -> String {
-    if n.round() == n && n.abs() < 1e15 {
-        format!("{}", n as i64)
-    } else {
-        fmt_g4(n)
-    }
+    if !n.is_finite() || n.abs() >= 1e15 { return fmt_g4(n); }
+    if n.round() == n { return format!("{}", n as i64); }
+    if n.abs() >= 1.0 { return strip_zeros(&format!("{n:.4}")); }
+    fmt_g4(n)
 }
 
 fn utc_offset() -> i64 { crate::platform::utc_offset() }
@@ -138,6 +139,11 @@ mod tests {
         assert_eq!(fmt_g4(123456.0), "1.235e+05");
         assert_eq!(fmt_g4(0.5), "0.5");
         assert_eq!(fmt_num(42.0), "42");
+        assert_eq!(fmt_num(3505.568775), "3505.5688");
+        assert_eq!(fmt_num(-70980000.12), "-70980000.12");
+        assert_eq!(fmt_num(-70980000.0), "-70980000");
+        assert_eq!(fmt_num(0.000123456), "0.0001235");
+        assert_eq!(fmt_num(2.5), "2.5");
     }
     #[test]
     fn trunc() {

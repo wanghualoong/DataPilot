@@ -1,7 +1,7 @@
 # 09 · 构建与发布
 
 ## 依赖
-Rust（stable）、Node 20+、Xcode 命令行工具（codesign / hdiutil）、网络（GitHub 经 Duke 代理；PyPI 用清华镜像）。
+Rust（stable）、Node 20+、Xcode 命令行工具（codesign / hdiutil）、网络（GitHub 下载可经 `DP_PROXY` 代理；PyPI 用清华镜像）。
 
 ## 一键打包
 ```bash
@@ -16,7 +16,8 @@ Rust（stable）、Node 20+、Xcode 命令行工具（codesign / hdiutil）、�
 环境变量：
 | 变量 | 作用 |
 |---|---|
-| `DP_PROXY` | GitHub 下载代理（默认 Duke 代理） |
+| `DP_PROXY` | GitHub 下载代理（默认不用） |
+| `DP_PUBLIC=1` | 对外发布版：不带 `Resources/defaults.local.json`（单位预设），并检查包内不含其中的地址 |
 | `DP_PYPI_INDEX` | PyPI 镜像（默认清华） |
 | `DP_SIGN_ID` | 签名身份，默认 `-`（ad-hoc）；如 `Developer ID Application: XXX (TEAMID)` |
 | `DP_NOTARY_PROFILE` | `xcrun notarytool store-credentials` 保存的配置名，设置后自动公证并 staple |
@@ -65,7 +66,7 @@ build/vendor/python/bin/python3 -I scripts/run_eval.py --base-url ... --model ..
 公证流程：`DP_SIGN_ID="Developer ID Application: XXX (TEAMID)" DP_NOTARY_PROFILE=<notarytool 钥匙串配置名> scripts/build_dmg.sh`。
 
 ## 中性标识（0.2 起，为开源准备）
-- Bundle ID：`io.github.datapilot.app`（原 `edu.duke.datapilot.app`）；钥匙串服务名：`io.github.datapilot.apikeys`。
-- 迁移：首次读取 Key 时从旧服务名读出→写入新服务名→删除旧条目（都经 `/usr/bin/security`，不弹窗）；`ui.*` 等偏好从旧 UserDefaults 域复制一次。数据目录 `~/Library/Application Support/DataPilot` 不变。
+- Bundle ID：`io.github.datapilot.app`；钥匙串服务名：`io.github.datapilot.apikeys`。
+- 旧服务名的 Key 迁移已在 0.1.11 移除（只读新服务名）。数据目录 `~/Library/Application Support/DataPilot` 不变。
 - 注意：Bundle ID 变化后，macOS 会要求重新授予“屏幕录制 / 辅助功能”权限（仅 Computer Use 需要）。
-- 许可：根目录 `LICENSE`（Apache-2.0）与 `THIRD_PARTY_NOTICES.md`。DKU 网关地址只作为引导页的可选预设出现。
+- 许可：根目录 `LICENSE`（Apache-2.0）与 `THIRD_PARTY_NOTICES.md`。仓库里不含任何单位的网关 / OCR 地址；单位预设放在不进 git 的 `Resources/defaults.local.json`，对外安装包用 `DP_PUBLIC=1` 打。

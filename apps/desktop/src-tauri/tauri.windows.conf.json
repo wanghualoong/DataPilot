@@ -10,7 +10,9 @@
         "installMode": "perMachine",
         "languages": ["SimpChinese", "English"],
         "displayLanguageSelector": false,
-        "installerHooks": "windows/installer-hooks.nsh"
+        "installerHooks": "windows/installer-hooks.nsh",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico"
       }
     }
   }

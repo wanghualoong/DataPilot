@@ -58,7 +58,19 @@ pub fn compact_profile(p: &Value) -> String {
 }
 
 fn data_import(a: &Value, c: &ToolCtx) -> Result<ToolResult, String> {
-    let r = c.kernel("import", pick(a, &["path", "table", "sheet", "header_row", "mode", "preview", "columns", "types"]), 900)?;
+    let mut params = pick(a, &["path", "table", "sheet", "header_row", "mode", "preview", "columns", "types"]);
+    // scanned PDF pages / images: tables from the document-parse service
+    let path = sv(a, "path");
+    let ext = Path::new(&path).extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let mut ocr = None;
+    if crate::docparse::handles(&ext) {
+        if let Ok(u) = super::agent::resolve_in(&path, &c.read_roots()) {
+            ocr = crate::docparse::for_tool(c, &u, None)?.map(|o| (u, o));
+            if let Some((_, o)) = &ocr { params["ocr"] = o.clone(); }
+        }
+    }
+    let r = c.kernel("import", params, 900)?;
+    let ocr_line = ocr.as_ref().map(|(_, o)| crate::docparse::describe(o));
     if r["preview"].as_bool() == Some(true) {
         let text: Vec<String> = arr(&r, "tables").iter().map(|t| {
             let head = strs(&t["columns"]).iter().zip(strs(&t["dtypes"]).iter()).map(|(c, ty)| format!("{c}({ty})")).collect::<Vec<_>>().join(", ");
@@ -67,9 +79,10 @@ fn data_import(a: &Value, c: &ToolCtx) -> Result<ToolResult, String> {
             format!("预览 {}{}：{} 行\n列：{head}\n样例：\n{rows}{w}", s(t, "table").unwrap_or_default(),
                     s(t, "sheet").map(|x| format!("（sheet {x}）")).unwrap_or_default(), i(t, "rows"))
         }).collect();
-        return Ok(ToolResult::ok(text.join("\n\n") + "\n（仅预览，未写入。确认列名/类型后再不带 preview 导入，可用 columns 改名或选列、types 指定类型。）"));
+        let pre = ocr_line.as_ref().map(|l| format!("{l}\n")).unwrap_or_default();
+        return Ok(ToolResult::ok(pre + &text.join("\n\n") + "\n（仅预览，未写入。确认列名/类型后再不带 preview 导入，可用 columns 改名或选列、types 指定类型。）"));
     }
-    let mut lines = vec![];
+    let mut lines: Vec<String> = ocr_line.iter().map(|l| format!("{l}（表格由文字识别得到，数字请与原件核对）")).collect();
     let (mut own, mut family) = (vec![], vec![]);
     for t in arr(&r, "tables") {
         if let Some(fp) = s(t, "fingerprint").filter(|f| !f.is_empty()) {
@@ -87,7 +100,9 @@ fn data_import(a: &Value, c: &ToolCtx) -> Result<ToolResult, String> {
     }
     if !own.is_empty() { c.shared.add_datasets(&own, &family); }
     lines.push("下一步：多表时调用 data_schema 查看表间关系；再用 sql_query / python 分析。".into());
-    Ok(ToolResult::with(lines.join("\n"), json!({"kind": "import", "tables": r.get("tables").cloned().unwrap_or(json!([]))})))
+    let mut d = json!({"kind": "import", "tables": r.get("tables").cloned().unwrap_or(json!([]))});
+    if let Some((u, o)) = &ocr { d["ocr"] = crate::docparse::card(u, o, &json!({})); }
+    Ok(ToolResult::with(lines.join("\n"), d))
 }
 
 fn catalog(ws: &Path) -> Value {

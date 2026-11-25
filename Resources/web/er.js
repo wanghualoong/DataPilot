@@ -2,11 +2,9 @@
  * Pure SVG, no dependencies; talks to the host only through DPHost (host.js), so the same file runs in the macOS
  * WKWebView, a Windows WebView2 or a Tauri shell.
  *
- * Adapted from Chat2DB Community v5.3.8 (LicenseRef-Chat2DB), blocks/ERModal/utils:
- *   - node size = header + one row per column (calculateNodeSize; constants scaled down for the inspector),
- *   - stored layout = node positions + user-drawn "virtual" edges (IStoredLayout) → here: data/er_layout.json for
- *     positions, and user relations in relations.json (source "user") for virtual edges,
- *   - layered left→right layout, parent (pk) side first (ELK "layered", direction RIGHT) — re-implemented, no elkjs.
+ * Layout: node height = header + one row per shown column; dragged positions are kept in data/er_layout.json and
+ * user-drawn relations in relations.json (source "user"); automatic layout places tables in layers left → right,
+ * referenced (parent) tables first, ordered to reduce crossings.
  *
  * Entry points: DPER.setLang(l), DPER.setTheme(t), DPER.load() (fetch via host), DPER.render({tables, relations, positions}).
  * Host ops used: tables, relations, er_layout, relation_test, relation_define. Events: relationsChanged, exportPNG.
@@ -153,7 +151,7 @@
     return { surface: cssv('--surface', dark ? '#1a1a19' : '#fcfcfb'), page: cssv('--page', dark ? '#0d0d0d' : '#f9f9f7'),
       ink: cssv('--ink', dark ? '#f0efec' : '#0b0b0b'), ink2: cssv('--ink2', '#52514e'), muted: cssv('--muted', '#898781'),
       grid: cssv('--grid', dark ? '#2c2c2a' : '#e1e0d9'), accent: cssv('--accent', '#2a78d6'), head: dark ? '#252524' : '#efeee9',
-      suspect: dark ? '#d95926' : '#eb6834', font: 'system-ui,-apple-system,"PingFang SC","Segoe UI",sans-serif' };
+      suspect: dark ? '#d95926' : '#eb6834', font: '-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei",sans-serif' };
   }
   function el(tag, attrs, parent, text) {
     const e = document.createElementNS(NS, tag);

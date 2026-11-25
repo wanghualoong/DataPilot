@@ -237,15 +237,38 @@ pub struct Settings {
     pub compact_token_limit: usize,
     /// who writes the compaction summary: "fast" (fast model, default) | "main"
     pub compact_model: String,
+    /// document parsing (OCR) of scanned PDF pages and images (MinerU server)
+    pub doc_parse: DocParse,
+    /// weekly automatic backup to AppSupport/backups (keeps 4, no project data)
+    pub auto_backup: bool,
+}
+
+/// `settings.docParse`: MinerU server for scanned pages / images. Primary tier (default advanced: no invented text,
+/// reads seals) plus an optional cross-check tier (default basic: keeps lines under seals). API key (optional) lives in
+/// the keychain as api_key "docparse".
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DocParse {
+    pub enabled: bool,
+    pub server: String,
+    pub primary_tier: String,
+    pub cross_check: bool,
+    pub check_tier: String,
+}
+
+impl Default for DocParse {
+    fn default() -> Self {
+        DocParse { enabled: true, server: String::new(), primary_tier: "advanced".into(), cross_check: true, check_tier: "basic".into() }
+    }
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { max_turns: 60, compact_threshold: 0.80, tool_output_max_chars: 8000, small_row_threshold: 5000, memory_enabled: true,
+        Settings { max_turns: 120, compact_threshold: 0.80, tool_output_max_chars: 8000, small_row_threshold: 5000, memory_enabled: true,
                    response_language: "auto".into(), proxy_mode: "system".into(), proxy_host: String::new(), proxy_port: 0,
                    default_mode: "ask".into(), local_only: false, subagent_max_concurrent: 4, browser_allowed_domains: vec![], mcp_servers: vec![], computer_use_enabled: false, computer_max_steps_per_turn: 40, kernel_idle_seconds: 900.0,
                    external_skills_enabled: true, external_skill_dirs: ["~/.codex/skills", "~/.codex/skills/.system", "~/.claude/skills"].map(String::from).to_vec(),
-                   compact_token_limit: 0, compact_model: "fast".into() }
+                   compact_token_limit: 0, compact_model: "fast".into(), doc_parse: DocParse::default(), auto_backup: true }
     }
 }
 

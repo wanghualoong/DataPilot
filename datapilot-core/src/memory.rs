@@ -107,6 +107,14 @@ pub fn write(d: &Path, name: &str, description: &str, kind: &str, body: &str, fi
     Ok(t)
 }
 
+/// Add / refresh the MEMORY.md line of an existing topic file (after a restore copied it in).
+pub fn index_topic(d: &Path, file: &str) -> Result<(), String> {
+    let text = std::fs::read_to_string(d.join(file)).map_err(|e| e.to_string())?;
+    let t = parse(&text, file, 0.0).ok_or_else(|| format!("{file}: not a memory topic"))?;
+    let line = format!("- [{}]({}) — {}", t.name, file, crate::text::prefix(&t.description.replace('\n', " "), 150));
+    set_index_line(d, file, Some(&line)).map_err(|e| e.to_string())
+}
+
 pub fn delete(d: &Path, file: &str) -> Result<(), String> {
     let f = Path::new(file).file_name().and_then(|x| x.to_str()).unwrap_or(file).to_string();
     let _ = std::fs::remove_file(d.join(&f));

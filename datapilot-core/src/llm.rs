@@ -284,7 +284,38 @@ impl Client {
 pub fn out_of_budget(r: &Completion) -> bool { r.finish.as_deref() == Some("length") && r.content.trim().is_empty() }
 
 /// Request body — same fields and rules as the Swift `buildBody`.
+/// Messages in API order: anything placed between an assistant message with tool calls and its tool results (meta
+/// hints written by older versions, interjections) moves after those results — the API rejects it otherwise.
+pub fn api_order(messages: &[ChatMessage]) -> Vec<&ChatMessage> {
+    let mut out: Vec<&ChatMessage> = Vec::with_capacity(messages.len());
+    let mut i = 0;
+    while i < messages.len() {
+        let m = &messages[i];
+        out.push(m);
+        i += 1;
+        let ids: Vec<&str> = match (&m.role, &m.tool_calls) {
+            (Role::Assistant, Some(tc)) if !tc.is_empty() => tc.iter().map(|c| c.id.as_str()).collect(),
+            _ => continue,
+        };
+        let mut held = vec![];
+        let mut left = ids.len();
+        while i < messages.len() && left > 0 {
+            let n = &messages[i];
+            match n.role {
+                Role::Tool if n.tool_call_id.as_deref().map(|id| ids.contains(&id)).unwrap_or(false) => { out.push(n); left -= 1; }
+                Role::Assistant => break,
+                _ => held.push(n),
+            }
+            i += 1;
+        }
+        out.extend(held);
+    }
+    out
+}
+
 pub fn build_body(model: &str, caps: &Capabilities, messages: &[ChatMessage], tools: &[ToolSpec], stream: bool) -> Value {
+    let ordered: Vec<ChatMessage> = api_order(messages).into_iter().cloned().collect();
+    let messages = &ordered[..];
     let hermes = caps.tool_call_mode == "hermes";
     let mut sys_prefix = if hermes && !tools.is_empty() { hermes_system_prompt(tools) } else { String::new() };
     let last_user = messages.iter().rposition(|m| m.role == Role::User && !m.is_meta).map(|i| i as isize).unwrap_or(-1);
@@ -522,6 +553,15 @@ pub fn hermes_parse(text: &str) -> (String, Vec<ToolCall>) {
 mod tests {
     use super::*;
     #[test]
+    fn hints_between_tool_calls_and_results_move_after() {
+        let mut a = ChatMessage::new(Role::Assistant, "");
+        a.tool_calls = Some(vec![crate::types::ToolCall { id: "c1".into(), name: "browser".into(), arguments: "{}".into() }]);
+        let msgs = vec![ChatMessage::user("q"), a, ChatMessage::meta("[系统提示] x", "t"), ChatMessage::tool("ok", "c1", "browser", "t"),
+                        ChatMessage::new(Role::Assistant, "done")];
+        let o: Vec<&str> = api_order(&msgs).iter().map(|m| m.role.as_str()).collect();
+        assert_eq!(o, ["user", "assistant", "tool", "user", "assistant"]);
+    }
+    #[test]
     fn hermes_hides_tool_text_while_streaming() {
         let mut p = StreamProcessor::new(true);
         let mut seen = String::new();
@@ -559,7 +599,7 @@ mod tests {
         assert_eq!(t, "hi"); assert_eq!(c[0].name, "x");
         let pac = r#"function FindProxyForURL(url, host) { if ((shExpMatch(host, "*.google.com") || shExpMatch(host, "google.com"))) return "PROXY p1:3128"; else if ((shExpMatch(host, "*.cn"))) return "DIRECT"; else return "PROXY p2:8080; DIRECT"; }"#;
         assert_eq!(eval_pac(pac, "www.google.com"), Some(Some("http://p1:3128".into())));
-        assert_eq!(eval_pac(pac, "aichat.dukekunshan.edu.cn"), Some(None));
+        assert_eq!(eval_pac(pac, "ai.gateway.example.cn"), Some(None));
         assert_eq!(eval_pac(pac, "example.org"), Some(Some("http://p2:8080".into())));
     }
 }

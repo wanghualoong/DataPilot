@@ -30,6 +30,7 @@ const ITEM: Record<string, [string, string]> = {
   python: ["Python 运行时", "Python runtime"], kernel: ["数据内核", "Data kernel"], key: ["API Key", "API key"], model: ["主模型", "Main model"],
   network: ["网络 / 代理", "Network / proxy"], chrome: ["Chrome（联网搜索 / 浏览器）", "Chrome (web search / browser)"],
   storage: ["数据目录", "Data folder"], disk: ["磁盘空间", "Disk space"], mcp: ["MCP 服务器", "MCP servers"], core: ["核心版本", "Core"],
+  recent: ["最近 10 次慢或失败的任务", "Last 10 slow or failed tasks"],
 };
 
 export function doctorReport(r: any): string {

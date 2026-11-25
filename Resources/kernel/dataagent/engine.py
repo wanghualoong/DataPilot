@@ -260,7 +260,7 @@ class Engine(DBOps):
         results, frames = importer.import_file(self.con, path, table=req.get("table"), header_row=req.get("header_row"),
                                                sheet=req.get("sheet"), mode=req.get("mode", "replace"),
                                                small_rows=self.small_rows, columns=req.get("columns"), types=req.get("types"),
-                                               dry_run=bool(req.get("preview")))
+                                               dry_run=bool(req.get("preview")), ocr=req.get("ocr"))
         if req.get("preview"):
             return {"preview": True, "tables": results}
         for r in results:
@@ -329,7 +329,41 @@ class Engine(DBOps):
 
     def op_extract_text(self, req):
         from . import office
-        return office.extract_text(self.resolve(req["path"]), max_chars=int(req.get("max_chars", 60000)), pages=req.get("pages"))
+        return office.extract_text(self.resolve(req["path"]), max_chars=int(req.get("max_chars", 60000)), pages=req.get("pages"), ocr=req.get("ocr"))
+
+    def op_ocr_scan(self, req):
+        """Which pages of a PDF have no text layer (images: one scanned page) → the core sends those to OCR."""
+        from . import ocr
+        return ocr.scan_pages(self.resolve(req["path"]), req.get("pages"))
+
+    def op_ocr_render(self, req):
+        """PNG of one page for the original-page view (written under the workspace tmp folder)."""
+        from . import ocr
+        return ocr.render_page(self.resolve(req["path"]), req.get("page", 1), os.path.join(self.ws, "tmp", "pages"), float(req.get("scale", 2.0)))
+
+    def op_ocr_export(self, req):
+        """Recognized text of a scanned PDF / image (all pages, review items included) → docx or md in outputs/exports."""
+        from . import ocr, office
+        fmt = (req.get("format") or "docx").lower()
+        if fmt not in ("docx", "md"):
+            raise ValueError("format must be docx | md")
+        path = self.resolve(req["path"])
+        md = office.extract_text(path, max_chars=10**9, ocr=req.get("ocr"))["text"]
+        stem = os.path.splitext(os.path.basename(path))[0]
+        out = self._unique_path(self._safe_name(req.get("filename") or f"{stem}_识别结果", fmt), fmt)
+        if fmt == "md":
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(md)
+        else:
+            ocr.md_to_docx(md, out, title=f"{os.path.basename(path)} 识别结果")
+        return {"path": out, "chars": len(md)}
+
+    def op_ocr_merge(self, req):
+        """Per-page merged text + review items of the scanned pages (original-page view)."""
+        from . import ocr
+        o = req.get("ocr") or {}
+        return {"pages": [{"page": n, "text": (ocr.page_text(o, n) or ("", []))[0], "review": (ocr.page_text(o, n) or ("", []))[1]}
+                          for n in (o.get("pages") or [])]}
 
     def op_drop_tables(self, req):
         """Drop tables whose source file was deleted (user confirmed in the app)."""
@@ -741,7 +775,7 @@ class Engine(DBOps):
         return {"path": path, "format": fmt, "rows": int(n), "bytes": os.path.getsize(path)}
 
     def _write_xlsx(self, src, path, total, sheet="data", batch=20_000):
-        """Stream rows into XlsxWriter (constant_memory) in batches, each cell through export_cells.CHAIN."""
+        """Stream rows into XlsxWriter (constant_memory) in batches; cell types via export_cells."""
         import xlsxwriter
         from . import export_cells
         # tz-aware timestamps: convert in SQL (fetching them into Python would need pytz; Excel has no tz anyway)
@@ -756,13 +790,12 @@ class Engine(DBOps):
         wb = xlsxwriter.Workbook(path, {"constant_memory": True, "strings_to_urls": False, "strings_to_formulas": False})
         try:
             ws = wb.add_worksheet(sheet)
-            fmts = export_cells.Formats(wb)
+            cells = export_cells.XlsxCells(wb)
             head = wb.add_format({"bold": True, "bg_color": "#F2F2F2", "border": 1})
             for j, c in enumerate(cols):
                 ws.write_string(0, j, str(c), head)
                 ws.set_column(j, j, min(40, max(8, len(str(c)) * 2)))
             ws.freeze_panes(1, 0)
-            ctxs = [export_cells.Ctx(column=c, db_type=t, fmt="xlsx") for c, t in zip(cols, types)]
             i = 0
             while True:
                 rows = cur.fetchmany(batch)
@@ -771,8 +804,7 @@ class Engine(DBOps):
                 for row in rows:
                     i += 1
                     for j, v in enumerate(row):
-                        cell = export_cells.CHAIN.process(ctxs[j], v)
-                        export_cells.write(ws, i, j, cell, fmts)
+                        cells.write(ws, i, j, v)
                 self.progress(f"xlsx {i:,}/{total:,} rows ({i * 100 // max(total, 1)}%)")
         finally:
             wb.close()

@@ -49,7 +49,7 @@ M2 新增（界面接入用）：`kernel/call {session, op, params?, timeout?}`�
 环境变量：`DP_RESOURCES`、`DP_PYTHON_ROOT`（不设时用仓库开发目录）、`DP_APP_SUPPORT`（默认 `~/Library/Application Support/DataPilot`）、`DP_API_KEY`（测试用；默认读钥匙串）。
 
 ## 代理
-与 Swift 版一致：模型服务的代理设为「跟随全局」且全局为「系统」时，按 macOS 系统设置解析——先读 PAC（`scutil --proxy` 的自动配置 URL，支持 `shExpMatch` / `dnsDomainIs` / `host ==` 分支），再退回 HTTPS 代理与例外列表。DKU 网络下 PAC 对 `aichat.dukekunshan.edu.cn` 返回 DIRECT，直接用 HTTPS 代理反而连不上。
+与 Swift 版一致：模型服务的代理设为「跟随全局」且全局为「系统」时，按 macOS 系统设置解析——先读 PAC（`scutil --proxy` 的自动配置 URL，支持 `shExpMatch` / `dnsDomainIs` / `host ==` 分支），再退回 HTTPS 代理与例外列表。实测的单位网络中 PAC 对内网网关返回 DIRECT，直接用 HTTPS 代理反而连不上。
 
 ## 尚未移植（见 TODO）
 Google 人机验证窗口、全局 SQLite 记忆（Rust 写 `AppSupport/memory/` 主题文件）。history_search 用扫描 transcript 代替 SQLite 全文索引。未移植的工具在 Rust 版不注册，模型看不到。

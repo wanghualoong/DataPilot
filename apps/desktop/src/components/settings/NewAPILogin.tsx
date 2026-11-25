@@ -10,7 +10,7 @@ type Stage = "checking" | "web" | "loading" | "keys" | "closed" | "failed";
 
 /** Log in to a New API gateway and pick (or create) an API key — port of the SwiftUI NewAPILoginView.
  *  The gateway's own login page opens in a separate window, so every login method it offers works (password,
- *  Duke NetID / OIDC, GitHub …). The full key goes from the gateway straight into the keychain inside the core;
+ *  SSO / OIDC, GitHub …). The full key goes from the gateway straight into the keychain inside the core;
  *  this view only sees masked keys, and the login credential stays in memory. */
 export function NewAPILogin({ provider, onClose, onUsed }: { provider: any; onClose: () => void; onUsed?: () => void }) {
   const origin = (() => { try { return new URL(provider.baseURL).origin; } catch { return ""; } })();

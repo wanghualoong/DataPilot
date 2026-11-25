@@ -1,6 +1,7 @@
 // Small shared UI pieces: popover menus, icon buttons, switches, column resizers.
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Check, ChevronDown, CircleCheck, CircleX, LoaderCircle, type LucideIcon } from "lucide-react";
+import { Check, ChevronDown, CircleCheck, CircleX, Copy, LoaderCircle, type LucideIcon } from "lucide-react";
+import { L } from "../i18n";
 
 export const ic = { size: 15, strokeWidth: 1.8 } as const;
 
@@ -62,6 +63,20 @@ export function IconBtn({ icon: Icon, title, onClick, disabled, on, className = 
     <button className={"iconbtn" + (on ? " on" : "") + " " + className} title={title} aria-label={title} disabled={disabled}
       onClick={(e) => { e.stopPropagation(); onClick?.(); }}>
       <Icon {...ic} size={size ?? ic.size} className={spin ? "spin" : undefined} />
+    </button>
+  );
+}
+
+/** Copy button: turns into a check mark with "已复制 / Copied" for 1.5 s after a successful copy. */
+export function CopyBtn({ text, className = "", size = 13 }: { text: () => string; className?: string; size?: number }) {
+  const [done, setDone] = useState(false);
+  useEffect(() => { if (!done) return; const t = setTimeout(() => setDone(false), 1500); return () => clearTimeout(t); }, [done]);
+  const copy = () => { navigator.clipboard?.writeText(text()).then(() => setDone(true), () => {}); };
+  const label = done ? L("已复制", "Copied") : L("复制", "Copy");
+  return (
+    <button className={"iconbtn copybtn" + (done ? " done" : "") + " " + className} title={label} aria-label={label} onClick={(e) => { e.stopPropagation(); copy(); }}>
+      {done ? <Check {...ic} size={size} /> : <Copy {...ic} size={size} />}
+      {done && <span className="copied">{label}</span>}
     </button>
   );
 }

@@ -1,7 +1,7 @@
 :root{color-scheme:light;
  --page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;--grid:#e1e0d9;--axis:#c3c2b7;
  --border:rgba(11,11,11,.10);--hover:rgba(11,11,11,.04);--accent:#2a78d6;--good:#006300;--bad:#d03b3b;
- font-family:system-ui,-apple-system,"PingFang SC","Segoe UI",sans-serif;font-size:calc(13px * var(--fs,1))}
+ font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI","Microsoft YaHei",sans-serif;font-size:calc(13px * var(--fs,1))}
 :root[data-theme="dark"]{color-scheme:dark;
  --page:#0d0d0d;--surface:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--axis:#383835;
  --border:rgba(255,255,255,.10);--hover:rgba(255,255,255,.05);--accent:#3987e5;--good:#0ca30c;--bad:#e66767}

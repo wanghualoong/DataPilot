@@ -80,7 +80,9 @@ export function filterCmds(cmds: Cmd[], q: string): Cmd[] {
   const pre = cmds.filter((c) => c.name.toLowerCase().startsWith(q));
   const con = cmds.filter((c) => !pre.includes(c) && c.name.toLowerCase().includes(q));
   const fz = cmds.filter((c) => !pre.includes(c) && !con.includes(c) && sub(c.name.toLowerCase()));
-  return [...pre, ...con, ...fz];
+  // last: the description mentions it (e.g. "/对比" finds data-compare, whose description starts with 数据对比)
+  const desc = cmds.filter((c) => !pre.includes(c) && !con.includes(c) && !fz.includes(c) && (c.desc ?? "").toLowerCase().includes(q));
+  return [...pre, ...con, ...fz, ...desc];
 }
 
 export function parseSlash(t: string): { name: string; args: string } | null {
@@ -90,12 +92,14 @@ export function parseSlash(t: string): { name: string; args: string } | null {
   return m ? { name: m[1], args: m[2].trim() } : null;
 }
 
-const ALIASES: Record<string, string> = { "skill-save": "skill-new", "save-skill": "skill-new", "new-skill": "skill-new", "skill-create": "skill-new", "create-skill": "skill-new" };
+const ALIASES: Record<string, string> = { "skill-save": "skill-new", "save-skill": "skill-new", "new-skill": "skill-new", "skill-create": "skill-new", "create-skill": "skill-new",
+  // Chinese names of built-in skills
+  "数据对比": "data-compare", "对比": "data-compare", "比对": "data-compare", "对账": "data-compare" };
 
 /** Typed name → built-in command name: skills keep their exact name; otherwise `_` = `-`, case-insensitive, plus aliases. */
 export function canonicalCmd(name: string, skills: string[] = []): string {
   if (skills.includes(name)) return name;
   const n = name.toLowerCase().replace(/_/g, "-");
-  if (ALIASES[n]) return ALIASES[n];
+  if (ALIASES[n] && (builtins.some((c) => c.name === ALIASES[n]) || skills.includes(ALIASES[n]) || !skills.length)) return ALIASES[n];
   return builtins.some((c) => c.name === n) ? n : name;
 }
